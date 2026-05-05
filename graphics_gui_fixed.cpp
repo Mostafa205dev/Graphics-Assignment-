@@ -315,6 +315,19 @@ void drawLineParametric(int x1, int y1, int x2, int y2)
 
 // ==================== Circles Menu Functions ====================
 
+void Draw8Points(HDC hdc, int xc, int yc, int x, int y, COLORREF color)
+{
+    SetPixel(hdc, xc + x, yc + y, color);
+    SetPixel(hdc, xc - x, yc + y, color);
+    SetPixel(hdc, xc + x, yc - y, color);
+    SetPixel(hdc, xc - x, yc - y, color);
+
+    SetPixel(hdc, xc + y, yc + x, color);
+    SetPixel(hdc, xc - y, yc + x, color);
+    SetPixel(hdc, xc + y, yc - x, color);
+    SetPixel(hdc, xc - y, yc - x, color);
+}
+
 void drawCircleDirect(int centerX, int centerY, int radius)
 {
     cout << "Drawing circle using Direct algorithm at (" << centerX << ","
