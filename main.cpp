@@ -440,19 +440,31 @@ void drawCircleMidpoint(int centerX, int centerY, int radius)
     cout << "Drawing circle using Midpoint algorithm at (" << centerX << ","
          << centerY << ") with radius " << radius << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    int x = 0, y = radius;
+    int d = 1 - radius;
+    Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
+    while (x < y)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radius, centerY - radius,
-            centerX + radius, centerY + radius, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        if (d < 0)
+        {
+            d += 2 * x + 3;
+        }
+        else
+        {
+            d += 2 * (x - y) + 5;
+            y--;
+        }
+        x++;
+        Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
     }
 
     cout << "Circle drawn!" << endl;
     string shapeData = "CIRCLE_MIDPOINT: center(" + to_string(centerX) + "," + to_string(centerY) + ") radius=" + to_string(radius);
     drawnShapes.push_back(shapeData);
+
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
@@ -461,19 +473,35 @@ void drawCircleModifiedMidpoint(int centerX, int centerY, int radius)
     cout << "Drawing circle using Modified Midpoint algorithm at (" << centerX << ","
          << centerY << ") with radius " << radius << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    int x = 0, y = radius;
+    int d = 1 - radius;
+    int c1 = 3, c2 = 5 - 2 * radius;
+    Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
+    while (x < y)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radius, centerY - radius,
-            centerX + radius, centerY + radius, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        if (d < 0)
+        {
+            d += c1;
+            c2 += 2;
+        }
+        else
+        {
+            d += c2;
+            c2 += 4;
+            y--;
+        }
+        c1 += 2;
+        x++;
+        Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
     }
 
     cout << "Circle drawn!" << endl;
-    string shapeData = "CIRCLE_MODIFIED_MIDPOINT: center(" + to_string(centerX) + "," + to_string(centerY) + ") radius=" + to_string(radius);
+    string shapeData = "CIRCLE_MOD_MIDPOINT: center(" + to_string(centerX) + "," + to_string(centerY) + ") radius=" + to_string(radius);
     drawnShapes.push_back(shapeData);
+
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
@@ -792,11 +820,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_CIRCLE_MIDPOINT)
         {
-            drawCircleMidpoint(500, 350, 110);
+            waitingForCirclePoints = true;
+            circlePointsClicked = 0;
+            currentCircleAlgorithm = 3;
+
+            cout << "\n=== Midpoint Circle Drawing ===" << endl;
+            cout << "Click center of circle, then click radius point." << endl;
         }
         else if (wmId == IDM_CIRCLE_MOD_MIDPOINT)
         {
-            drawCircleModifiedMidpoint(600, 400, 120);
+            waitingForCirclePoints = true;
+            circlePointsClicked = 0;
+            currentCircleAlgorithm = 4;
+
+            cout << "\n=== Modified Midpoint Circle Drawing ===" << endl;
+            cout << "Click center of circle, then click radius point." << endl;
         }
         // Ellipse Menu
         else if (wmId == IDM_ELLIPSE_DIRECT)
