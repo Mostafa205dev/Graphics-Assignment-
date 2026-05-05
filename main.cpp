@@ -402,19 +402,25 @@ void drawCircleIterativePolar(int centerX, int centerY, int radius)
     cout << "Drawing circle using Iterative Polar algorithm at (" << centerX << ","
          << centerY << ") with radius " << radius << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    double x = radius, y = 0;
+    double dtheta = 1.0 / radius;
+    double cdtheta = cos(dtheta), sdtheta = sin(dtheta);
+    Draw8Points(hdcBuffer, centerX, centerY, radius, 0, currentColor);
+    while (x > y)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radius, centerY - radius,
-            centerX + radius, centerY + radius, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        double x1 = x * cdtheta - y * sdtheta;
+        y = x * sdtheta + y * cdtheta;
+        x = x1;
+        Draw8Points(hdcBuffer, centerX, centerY, round(x), round(y), currentColor);
     }
 
     cout << "Circle drawn!" << endl;
-    string shapeData = "CIRCLE_ITERATIVE_POLAR: center(" + to_string(centerX) + "," + to_string(centerY) + ") radius=" + to_string(radius);
+    string shapeData = "CIRCLE_ITER_POLAR: center(" + to_string(centerX) + "," + to_string(centerY) + ") radius=" + to_string(radius);
     drawnShapes.push_back(shapeData);
+
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
@@ -766,7 +772,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_CIRCLE_ITER_POLAR)
         {
-            drawCircleIterativePolar(400, 300, 100);
+            waitingForCirclePoints = true;
+            circlePointsClicked = 0;
+            currentCircleAlgorithm = 2;
+
+            cout << "\n=== Iterative Polar Circle Drawing ===" << endl;
+            cout << "Click center of circle, then click radius point." << endl;
         }
         else if (wmId == IDM_CIRCLE_MIDPOINT)
         {
