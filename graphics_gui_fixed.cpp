@@ -33,6 +33,11 @@ int lineX1 = 0, lineY1 = 0, lineX2 = 0, lineY2 = 0;
 int linePointsClicked = 0;
 int currentLineAlgorithm = 0; // 0=DDA, 1=Midpoint, 2=Parametric
 
+// Circle drawing state variables
+bool waitingForCirclePoints = false;
+int circleCenterX, circleCenterY;
+int circlePointsClicked = 0;
+
 // ==================== Menu IDs ====================
 #define IDM_FILE_CLEAR 1001
 #define IDM_FILE_SAVE 1002
@@ -330,22 +335,37 @@ void Draw8Points(HDC hdc, int xc, int yc, int x, int y, COLORREF color)
 
 void drawCircleDirect(int centerX, int centerY, int radius)
 {
-    cout << "Drawing circle using Direct algorithm at (" << centerX << ","
-         << centerY << ") with radius " << radius << endl;
+    cout << "Drawing circle using Direct algorithm at ("
+         << centerX << "," << centerY
+         << ") radius = " << radius << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    int x = 0;
+    int y = radius;
+
+    Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
+
+    while (x < y)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radius, centerY - radius,
-            centerX + radius, centerY + radius, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        x++;
+
+        y = round(sqrt((double)radius * radius - x * x));
+
+        Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
     }
 
     cout << "Circle drawn!" << endl;
-    string shapeData = "CIRCLE_DIRECT: center(" + to_string(centerX) + "," + to_string(centerY) + ") radius=" + to_string(radius);
+
+    string shapeData =
+        "CIRCLE_DIRECT: center(" +
+        to_string(centerX) + "," +
+        to_string(centerY) +
+        ") radius=" + to_string(radius);
+
     drawnShapes.push_back(shapeData);
+
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
@@ -720,7 +740,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Circles Menu
         else if (wmId == IDM_CIRCLE_DIRECT)
         {
-            drawCircleDirect(200, 200, 80);
+
+            waitingForCirclePoints = true;
+            circlePointsClicked = 0;
+
+            cout << "\n=== Direct Circle Drawing ===" << endl;
+            cout << "Click center of circle, then click radius point." << endl;
         }
         else if (wmId == IDM_CIRCLE_POLAR)
         {
@@ -859,7 +884,37 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 linePointsClicked = 0;
             }
         }
-        return 0;
+        if (waitingForCirclePoints)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+
+            if (circlePointsClicked == 0)
+            {
+                circleCenterX = mouseX;
+                circleCenterY = mouseY;
+                circlePointsClicked = 1;
+
+                cout << "Center selected: ("
+                     << circleCenterX << ","
+                     << circleCenterY << ")" << endl;
+                cout << "Click radius point..." << endl;
+            }
+            else if (circlePointsClicked == 1)
+            {
+                int dx = mouseX - circleCenterX;
+                int dy = mouseY - circleCenterY;
+
+                int radius = round(sqrt(dx * dx + dy * dy));
+
+                drawCircleDirect(circleCenterX, circleCenterY, radius);
+
+                waitingForCirclePoints = false;
+                circlePointsClicked = 0;
+            }
+
+            return 0;
+        }
     }
 
     case WM_PAINT:
