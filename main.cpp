@@ -749,7 +749,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_CIRCLE_POLAR)
         {
-            drawCirclePolar(300, 250, 90);
+            waitingForCirclePoints = true;
+            circlePointsClicked = 0;
         }
         else if (wmId == IDM_CIRCLE_ITER_POLAR)
         {
