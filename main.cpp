@@ -138,9 +138,20 @@ INT_PTR CALLBACK InputLineDialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 void clearScreen()
 {
     cout << "Clearing screen from all shapes..." << endl;
+
     drawnShapes.clear();
+
+    if (hdcBuffer)
+    {
+        RECT rect = {0, 0, WINDOW_WIDTH, WINDOW_HEIGHT};
+
+        FillRect(hdcBuffer, &rect, hBackgroundBrush);
+    }
+
     cout << "Screen cleared successfully!" << endl;
+
     InvalidateRect(hMainWindow, NULL, FALSE);
+    UpdateWindow(hMainWindow);
 }
 
 void saveToFile()
