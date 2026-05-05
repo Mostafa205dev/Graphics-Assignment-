@@ -37,6 +37,7 @@ int currentLineAlgorithm = 0; // 0=DDA, 1=Midpoint, 2=Parametric
 bool waitingForCirclePoints = false;
 int circleCenterX, circleCenterY;
 int circlePointsClicked = 0;
+int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpoint, 4=Modified Midpoint
 
 // ==================== Menu IDs ====================
 #define IDM_FILE_CLEAR 1001
@@ -374,19 +375,25 @@ void drawCirclePolar(int centerX, int centerY, int radius)
     cout << "Drawing circle using Polar algorithm at (" << centerX << ","
          << centerY << ") with radius " << radius << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    int x = radius, y = 0;
+    double theta = 0, dtheta = 1.0 / radius;
+    Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
+    while (x > y)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radius, centerY - radius,
-            centerX + radius, centerY + radius, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        theta += dtheta;
+        x = round(radius * cos(theta));
+        y = round(radius * sin(theta));
+        Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
     }
 
     cout << "Circle drawn!" << endl;
+
     string shapeData = "CIRCLE_POLAR: center(" + to_string(centerX) + "," + to_string(centerY) + ") radius=" + to_string(radius);
     drawnShapes.push_back(shapeData);
+
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
@@ -743,6 +750,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             waitingForCirclePoints = true;
             circlePointsClicked = 0;
+            currentCircleAlgorithm = 0;
 
             cout << "\n=== Direct Circle Drawing ===" << endl;
             cout << "Click center of circle, then click radius point." << endl;
@@ -751,6 +759,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             waitingForCirclePoints = true;
             circlePointsClicked = 0;
+            currentCircleAlgorithm = 1;
+
+            cout << "\n=== Polar Circle Drawing ===" << endl;
+            cout << "Click center of circle, then click radius point." << endl;
         }
         else if (wmId == IDM_CIRCLE_ITER_POLAR)
         {
@@ -908,7 +920,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                 int radius = round(sqrt(dx * dx + dy * dy));
 
-                drawCircleDirect(circleCenterX, circleCenterY, radius);
+                if (currentCircleAlgorithm == 0)
+                    drawCircleDirect(circleCenterX, circleCenterY, radius);
+                else if (currentCircleAlgorithm == 1)
+                    drawCirclePolar(circleCenterX, circleCenterY, radius);
+                else if (currentCircleAlgorithm == 2)
+                    drawCircleIterativePolar(circleCenterX, circleCenterY, radius);
+                else if (currentCircleAlgorithm == 3)
+                    drawCircleMidpoint(circleCenterX, circleCenterY, radius);
+                else if (currentCircleAlgorithm == 4)
+                    drawCircleModifiedMidpoint(circleCenterX, circleCenterY, radius);
 
                 waitingForCirclePoints = false;
                 circlePointsClicked = 0;
