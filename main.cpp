@@ -39,6 +39,10 @@ int circleCenterX, circleCenterY;
 int circlePointsClicked = 0;
 int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpoint, 4=Modified Midpoint
 
+// Cursor state variable
+int currentCursorType = 0; // 0=Arrow, 1=Hand, 2=Wait, 3=Cross, 4=IBeam, 5=No, 6=SizeNS, 7=SizeWE
+LPCTSTR cursorTypeNames[] = {_T("Arrow"), _T("Hand"), _T("Wait (Hourglass)"), _T("Cross"), _T("IBeam"), _T("No/Prohibited"), _T("Size NS"), _T("Size WE")};
+
 // ==================== Menu IDs ====================
 #define IDM_FILE_CLEAR 1001
 #define IDM_FILE_SAVE 1002
@@ -133,7 +137,47 @@ INT_PTR CALLBACK InputLineDialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
     return FALSE;
 }
 
+// Cursor selection dialog
+INT_PTR CALLBACK CursorSelectionDialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    static int *pCursorType = NULL;
+
+    switch (uMsg)
+    {
+    case WM_INITDIALOG:
+    {
+        pCursorType = (int *)lParam;
+
+        // Create combo box with cursor options
+        HWND hCombo = GetDlgItem(hwnd, 1001);
+        for (int i = 0; i < 8; i++)
+        {
+            SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)cursorTypeNames[i]);
+        }
+        SendMessage(hCombo, CB_SETCURSEL, *pCursorType, 0);
+        return TRUE;
+    }
+    case WM_COMMAND:
+    {
+        if (LOWORD(wParam) == IDOK)
+        {
+            HWND hCombo = GetDlgItem(hwnd, 1001);
+            *pCursorType = SendMessage(hCombo, CB_GETCURSEL, 0, 0);
+            EndDialog(hwnd, IDOK);
+        }
+        else if (LOWORD(wParam) == IDCANCEL)
+        {
+            EndDialog(hwnd, IDCANCEL);
+        }
+        return TRUE;
+    }
+    }
+    return FALSE;
+}
+
 // ==================== File Menu Functions ====================
+// The parseAndDrawShape function is used to interpret the shape data loaded from the file
+void parseAndDrawShape(const string &shapeData);
 
 void clearScreen()
 {
@@ -185,10 +229,25 @@ void loadFromFile()
     {
         string line;
         drawnShapes.clear();
+
+        // Clear the canvas first
+        if (hdcBuffer)
+        {
+            RECT rect = {0, 0, WINDOW_WIDTH, WINDOW_HEIGHT};
+            FillRect(hdcBuffer, &rect, hBackgroundBrush);
+        }
+
+        // Load and redraw all shapes
         while (getline(infile, line))
         {
-            drawnShapes.push_back(line);
-            cout << "Loaded: " << line << endl;
+            if (!line.empty())
+            {
+                drawnShapes.push_back(line);
+                cout << "Loaded: " << line << endl;
+
+                // Parse and redraw the shape
+                parseAndDrawShape(line);
+            }
         }
         infile.close();
         cout << "Data loaded successfully!" << endl;
@@ -215,11 +274,61 @@ void setWhiteBackground()
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
+LPCWSTR GetCursorHandleByType(int cursorType)
+{
+    switch (cursorType)
+    {
+    case 0:
+        return IDC_ARROW;
+    case 1:
+        return IDC_HAND;
+    case 2:
+        return IDC_WAIT;
+    case 3:
+        return IDC_CROSS;
+    case 4:
+        return IDC_IBEAM;
+    case 5:
+        return IDC_NO;
+    case 6:
+        return IDC_SIZENS;
+    case 7:
+        return IDC_SIZEWE;
+    default:
+        return IDC_ARROW;
+    }
+}
+
 void changeMouseCursor()
 {
-    cout << "Changing mouse cursor shape..." << endl;
-    SetCursor(LoadCursor(NULL, IDC_HAND));
-    cout << "Mouse cursor shape changed!" << endl;
+    cout << "=== Select Mouse Cursor ===" << endl;
+    cout << "Available cursor options:" << endl;
+    cout << "0: Arrow" << endl;
+    cout << "1: Hand (Pointer)" << endl;
+    cout << "2: Wait (Hourglass)" << endl;
+    cout << "3: Cross" << endl;
+    cout << "4: IBeam (Text)" << endl;
+    cout << "5: No/Prohibited" << endl;
+    cout << "6: Size North-South" << endl;
+    cout << "7: Size West-East" << endl;
+
+    // Show information about available cursors
+    int result = MessageBox(hMainWindow,
+                            _T("Select a mouse cursor:\n\n")
+                            _T("Click 'Yes' to cycle through cursor types:\n")
+                            _T("Arrow -> Hand -> Wait -> Cross -> IBeam -> No -> SizeNS -> SizeWE -> Arrow...\n\n")
+                            _T("Current cursor will change each time you click Yes"),
+                            _T("Change Mouse Cursor"),
+                            MB_YESNO | MB_ICONQUESTION);
+
+    if (result == IDYES)
+    {
+        // Cycle through cursors
+        currentCursorType = (currentCursorType + 1) % 8;
+        SetCursor(LoadCursor(NULL, GetCursorHandleByType(currentCursorType)));
+        cout << "Mouse cursor changed to type: " << currentCursorType << endl;
+        cout << "Cursor: " << cursorTypeNames[currentCursorType] << endl;
+    }
 }
 
 void chooseShapeColor()
@@ -288,20 +397,75 @@ void drawLineDDA(int x1, int y1, int x2, int y2)
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
+// Midpoint Algorithm Implementation
+void midpointAlgorithm(int x1, int y1, int x2, int y2)
+{
+    if (!hdcBuffer)
+        return;
+
+    int dx = abs(x2 - x1);
+    int dy = abs(y2 - y1);
+    int sx = (x1 < x2) ? 1 : -1;
+    int sy = (y1 < y2) ? 1 : -1;
+
+    int x = x1;
+    int y = y1;
+
+    if (dx > dy) // More horizontal
+    {
+        int d = 2 * dy - dx;
+        int d_inc = 2 * dy;
+        int d_dec = 2 * (dy - dx);
+
+        SetPixel(hdcBuffer, x, y, currentColor);
+
+        for (int i = 0; i < dx; i++)
+        {
+            if (d < 0)
+            {
+                d += d_inc;
+            }
+            else
+            {
+                d += d_dec;
+                y += sy;
+            }
+            x += sx;
+            SetPixel(hdcBuffer, x, y, currentColor);
+        }
+    }
+    else // More vertical
+    {
+        int d = 2 * dx - dy;
+        int d_inc = 2 * dx;
+        int d_dec = 2 * (dx - dy);
+
+        SetPixel(hdcBuffer, x, y, currentColor);
+
+        for (int i = 0; i < dy; i++)
+        {
+            if (d < 0)
+            {
+                d += d_inc;
+            }
+            else
+            {
+                d += d_dec;
+                x += sx;
+            }
+            y += sy;
+            SetPixel(hdcBuffer, x, y, currentColor);
+        }
+    }
+}
+
 void drawLineMidpoint(int x1, int y1, int x2, int y2)
 {
     cout << "Drawing line using Midpoint algorithm from (" << x1 << "," << y1
          << ") to (" << x2 << "," << y2 << ")" << endl;
 
-    if (hdcBuffer)
-    {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        MoveToEx(hdcBuffer, x1, y1, NULL);
-        LineTo(hdcBuffer, x2, y2);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
-    }
+    // Use the actual Midpoint algorithm
+    midpointAlgorithm(x1, y1, x2, y2);
 
     cout << "Midpoint line drawn!" << endl;
     string shapeData = "LINE_MIDPOINT: (" + to_string(x1) + "," + to_string(y1) + ") to (" + to_string(x2) + "," + to_string(y2) + ")";
@@ -309,20 +473,40 @@ void drawLineMidpoint(int x1, int y1, int x2, int y2)
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
+// Parametric Algorithm Implementation
+void parametricAlgorithm(int x1, int y1, int x2, int y2)
+{
+    if (!hdcBuffer)
+        return;
+
+    int dx = x2 - x1;
+    int dy = y2 - y1;
+
+    int steps = max(abs(dx), abs(dy));
+
+    if (steps == 0)
+    {
+        SetPixel(hdcBuffer, x1, y1, currentColor);
+        return;
+    }
+
+    for (int i = 0; i <= steps; i++)
+    {
+        float t = (float)i / steps;
+        float x = x1 + t * dx;
+        float y = y1 + t * dy;
+
+        SetPixel(hdcBuffer, (int)(x + 0.5f), (int)(y + 0.5f), currentColor);
+    }
+}
+
 void drawLineParametric(int x1, int y1, int x2, int y2)
 {
     cout << "Drawing line using Parametric algorithm from (" << x1 << "," << y1
          << ") to (" << x2 << "," << y2 << ")" << endl;
 
-    if (hdcBuffer)
-    {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        MoveToEx(hdcBuffer, x1, y1, NULL);
-        LineTo(hdcBuffer, x2, y2);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
-    }
+    // Use the actual Parametric algorithm
+    parametricAlgorithm(x1, y1, x2, y2);
 
     cout << "Parametric line drawn!" << endl;
     string shapeData = "LINE_PARAMETRIC: (" + to_string(x1) + "," + to_string(y1) + ") to (" + to_string(x2) + "," + to_string(y2) + ")";
@@ -700,9 +884,88 @@ void drawSadFace()
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-// ==================== Removed problematic dialog functions ====================
-// GetLineInputAndDraw and GetCircleInputAndDraw were causing compilation errors
-// and are not essential for the basic functionality
+// =============== Helper function to parse and redraw shapes from stored data ==================
+void parseAndDrawShape(const string &shapeData)
+{
+    // Parse LINE_DDA
+    if (shapeData.find("LINE_DDA:") == 0)
+    {
+        int x1, y1, x2, y2;
+        sscanf_s(shapeData.c_str(), "LINE_DDA: (%d,%d) to (%d,%d)", &x1, &y1, &x2, &y2);
+        dDAAlgorithm(x1, y1, x2, y2);
+    }
+    // Parse LINE_MIDPOINT
+    else if (shapeData.find("LINE_MIDPOINT:") == 0)
+    {
+        int x1, y1, x2, y2;
+        sscanf_s(shapeData.c_str(), "LINE_MIDPOINT: (%d,%d) to (%d,%d)", &x1, &y1, &x2, &y2);
+        midpointAlgorithm(x1, y1, x2, y2);
+    }
+    // Parse LINE_PARAMETRIC
+    else if (shapeData.find("LINE_PARAMETRIC:") == 0)
+    {
+        int x1, y1, x2, y2;
+        sscanf_s(shapeData.c_str(), "LINE_PARAMETRIC: (%d,%d) to (%d,%d)", &x1, &y1, &x2, &y2);
+        parametricAlgorithm(x1, y1, x2, y2);
+    }
+    // Parse CIRCLE_DIRECT
+    else if (shapeData.find("CIRCLE_DIRECT:") == 0)
+    {
+        int cx, cy, radius;
+        sscanf_s(shapeData.c_str(), "CIRCLE_DIRECT: center(%d,%d) radius=%d", &cx, &cy, &radius);
+        drawCircleDirect(cx, cy, radius);
+    }
+    // Parse CIRCLE_POLAR
+    else if (shapeData.find("CIRCLE_POLAR:") == 0)
+    {
+        int cx, cy, radius;
+        sscanf_s(shapeData.c_str(), "CIRCLE_POLAR: center(%d,%d) radius=%d", &cx, &cy, &radius);
+        drawCirclePolar(cx, cy, radius);
+    }
+    // Parse CIRCLE_ITER_POLAR
+    else if (shapeData.find("CIRCLE_ITER_POLAR:") == 0)
+    {
+        int cx, cy, radius;
+        sscanf_s(shapeData.c_str(), "CIRCLE_ITER_POLAR: center(%d,%d) radius=%d", &cx, &cy, &radius);
+        drawCircleIterativePolar(cx, cy, radius);
+    }
+    // Parse CIRCLE_MIDPOINT
+    else if (shapeData.find("CIRCLE_MIDPOINT:") == 0)
+    {
+        int cx, cy, radius;
+        sscanf_s(shapeData.c_str(), "CIRCLE_MIDPOINT: center(%d,%d) radius=%d", &cx, &cy, &radius);
+        drawCircleMidpoint(cx, cy, radius);
+    }
+    // Parse CIRCLE_MOD_MIDPOINT
+    else if (shapeData.find("CIRCLE_MOD_MIDPOINT:") == 0)
+    {
+        int cx, cy, radius;
+        sscanf_s(shapeData.c_str(), "CIRCLE_MOD_MIDPOINT: center(%d,%d) radius=%d", &cx, &cy, &radius);
+        drawCircleModifiedMidpoint(cx, cy, radius);
+    }
+    // Parse ELLIPSE_DIRECT
+    else if (shapeData.find("ELLIPSE_DIRECT:") == 0)
+    {
+        int cx, cy, radA, radB;
+        sscanf_s(shapeData.c_str(), "ELLIPSE_DIRECT: center(%d,%d) radii=%d,%d", &cx, &cy, &radA, &radB);
+        drawEllipseDirect(cx, cy, radA, radB);
+    }
+    // Parse ELLIPSE_POLAR
+    else if (shapeData.find("ELLIPSE_POLAR:") == 0)
+    {
+        int cx, cy, radA, radB;
+        sscanf_s(shapeData.c_str(), "ELLIPSE_POLAR: center(%d,%d) radii=%d,%d", &cx, &cy, &radA, &radB);
+        drawEllipsePolar(cx, cy, radA, radB);
+    }
+    // Parse ELLIPSE_MIDPOINT
+    else if (shapeData.find("ELLIPSE_MIDPOINT:") == 0)
+    {
+        int cx, cy, radA, radB;
+        sscanf_s(shapeData.c_str(), "ELLIPSE_MIDPOINT: center(%d,%d) radii=%d,%d", &cx, &cy, &radA, &radB);
+        drawEllipseMidpoint(cx, cy, radA, radB);
+    }
+    // Add more shape types here as needed in the future
+}
 
 // ==================== Window Procedure ====================
 
@@ -997,6 +1260,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             return 0;
         }
+    }
+
+    case WM_SETCURSOR:
+    {
+        // Apply the selected cursor type
+        SetCursor(LoadCursor(NULL, GetCursorHandleByType(currentCursorType)));
+        return TRUE;
     }
 
     case WM_PAINT:
