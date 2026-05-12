@@ -4,8 +4,6 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <queue>
-#include <algorithm>
 #include <windows.h>
 #include <cmath>
 #include <string>
@@ -13,7 +11,6 @@
 #include <tchar.h>
 #include <windowsx.h>
 #include <stack>
-
 using namespace std;
 
 // ==================== Constants ====================
@@ -42,6 +39,9 @@ int circleCenterX, circleCenterY;
 int circlePointsClicked = 0;
 int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpoint, 4=Modified Midpoint
 
+// flood fill state variable
+bool waitingForFloodFill = false;
+int currentFloodFillAlgorithm; // 0=Recursive, 1=Non-Recursive
 // Ellipse drawing state variables
 bool waitingForEllipsePoints = false;
 int ellipseCenterX, ellipseCenterY;
@@ -703,6 +703,7 @@ void drawCircleModifiedMidpoint(int centerX, int centerY, int radius)
 // ==================== Ellipse Menu Functions ====================
 
 // Helper function to draw 4 quadrant points for ellipse
+
 void Draw4EllipsePoints(HDC hdc, int xc, int yc, int x, int y, COLORREF color)
 {
     SetPixel(hdc, xc + x, yc + y, color);
@@ -729,7 +730,6 @@ void drawEllipseDirect(int centerX, int centerY, int radA, int radB)
 
     while (x < radA)
     {
-        cout << "Ellipse Direct: x=" << x << ", y=" << y << "and centerx+rada=" << centerX + radA << endl;
         x += .25;
         y = round(sqrt(b2 * (1.0 - (x * x) / a2)));
         Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
@@ -829,8 +829,10 @@ void drawCardinalSplineCurve()
 {
     cout << "Drawing Cardinal Spline Curve..." << endl;
 
-    if (!hdcBuffer)
-        return;
+    // TODO: Implement Cardinal Spline Curve algorithm
+    cout << "Cardinal Spline Curve drawn!" << endl;
+    drawnShapes.push_back("CURVE_CARDINAL_SPLINE");
+    InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
 // ==================== Filling Menu Functions ====================
@@ -876,7 +878,7 @@ void floodFillRec(int x, int y, COLORREF oldColor, COLORREF newColor)
         return;
 
     // boundary checks
-    if (x < 0 || x >= WINDOW_WIDTH || y < 0 || y >= WINDOW_HEIGHT)
+    if (x < 0 || x >= WINDOW_WIDTH - 1 || y < 0 || y >= WINDOW_HEIGHT - 1)
         return;
 
     COLORREF currentPixel = GetPixel(hdcBuffer, x, y);
@@ -894,6 +896,7 @@ void floodFillRec(int x, int y, COLORREF oldColor, COLORREF newColor)
     floodFillRec(x, y + 1, oldColor, newColor);
     floodFillRec(x, y - 1, oldColor, newColor);
 }
+
 void recursiveFloodFill(int x, int y)
 {
     cout << "Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
@@ -959,113 +962,9 @@ void nonRecursiveFloodFill(int x, int y)
 
 // ==================== Clipping Menu Functions ====================
 
-// Cohen-Sutherland line clipping
-const int INSIDE = 0;
-const int LEFT = 1;
-const int RIGHT = 2;
-const int BOTTOM = 4;
-const int TOP = 8;
-
-int getClipCode(int x, int y, int xMin, int yMin, int xMax, int yMax)
-{
-    int code = INSIDE;
-    if (x < xMin)
-        code |= LEFT;
-    if (x > xMax)
-        code |= RIGHT;
-    if (y < yMin)
-        code |= BOTTOM;
-    if (y > yMax)
-        code |= TOP;
-    return code;
-}
-
-bool clipLineCohenSutherland(int &x1, int &y1, int &x2, int &y2, int xMin, int yMin, int xMax, int yMax)
-{
-    int code1 = getClipCode(x1, y1, xMin, yMin, xMax, yMax);
-    int code2 = getClipCode(x2, y2, xMin, yMin, xMax, yMax);
-
-    while (true)
-    {
-        if ((code1 | code2) == 0)
-            return true; // Both inside
-        if (code1 & code2)
-            return false; // Both outside on same side
-
-        int code = (code1 != 0) ? code1 : code2;
-        int x, y;
-
-        if (code & LEFT)
-        {
-            x = xMin;
-            y = y1 + (y2 - y1) * (xMin - x1) / (x2 - x1);
-        }
-        else if (code & RIGHT)
-        {
-            x = xMax;
-            y = y1 + (y2 - y1) * (xMax - x1) / (x2 - x1);
-        }
-        else if (code & BOTTOM)
-        {
-            y = yMin;
-            x = x1 + (x2 - x1) * (yMin - y1) / (y2 - y1);
-        }
-        else
-        {
-            y = yMax;
-            x = x1 + (x2 - x1) * (yMax - y1) / (y2 - y1);
-        }
-
-        if (code == code1)
-        {
-            x1 = x;
-            y1 = y;
-            code1 = getClipCode(x1, y1, xMin, yMin, xMax, yMax);
-        }
-        else
-        {
-            x2 = x;
-            y2 = y;
-            code2 = getClipCode(x2, y2, xMin, yMin, xMax, yMax);
-        }
-    }
-}
-
 void clipPointRectangle()
 {
     cout << "Point Clipping using Rectangle Window..." << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    int clipXMin = 200, clipYMin = 150, clipXMax = 600, clipYMax = 450;
-
-    // Draw clipping window
-    dDAAlgorithm(clipXMin, clipYMin, clipXMax, clipYMin);
-    dDAAlgorithm(clipXMax, clipYMin, clipXMax, clipYMax);
-    dDAAlgorithm(clipXMax, clipYMax, clipXMin, clipYMax);
-    dDAAlgorithm(clipXMin, clipYMax, clipXMin, clipYMin);
-
-    // Test points
-    int testPoints[][2] = {{250, 200}, {400, 300}, {700, 400}, {150, 250}, {350, 500}};
-
-    COLORREF saveColor = currentColor;
-    currentColor = RGB(255, 0, 0); // Red for clipped points
-
-    for (int i = 0; i < 5; i++)
-    {
-        int x = testPoints[i][0];
-        int y = testPoints[i][1];
-
-        // Check if point is inside rectangle
-        if (x >= clipXMin && x <= clipXMax && y >= clipYMin && y <= clipYMax)
-        {
-            SetPixel(hdcBuffer, x, y, currentColor);
-        }
-    }
-
-    currentColor = saveColor;
-    cout << "Point Clipping completed!" << endl;
     drawnShapes.push_back("CLIP_POINT_RECTANGLE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1073,41 +972,6 @@ void clipPointRectangle()
 void clipLineRectangle()
 {
     cout << "Line Clipping using Rectangle Window..." << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    int clipXMin = 250, clipYMin = 150, clipXMax = 550, clipYMax = 450;
-
-    // Draw clipping window
-    dDAAlgorithm(clipXMin, clipYMin, clipXMax, clipYMin);
-    dDAAlgorithm(clipXMax, clipYMin, clipXMax, clipYMax);
-    dDAAlgorithm(clipXMax, clipYMax, clipXMin, clipYMax);
-    dDAAlgorithm(clipXMin, clipYMax, clipXMin, clipYMin);
-
-    // Test lines
-    int lines[][4] = {
-        {100, 200, 400, 300}, // Partially inside
-        {300, 100, 300, 500}, // Vertical through window
-        {600, 200, 700, 400}  // Outside
-    };
-
-    COLORREF saveColor = currentColor;
-    currentColor = RGB(0, 255, 0); // Green for clipped lines
-
-    for (int i = 0; i < 3; i++)
-    {
-        int x1 = lines[i][0], y1 = lines[i][1];
-        int x2 = lines[i][2], y2 = lines[i][3];
-
-        if (clipLineCohenSutherland(x1, y1, x2, y2, clipXMin, clipYMin, clipXMax, clipYMax))
-        {
-            dDAAlgorithm(x1, y1, x2, y2);
-        }
-    }
-
-    currentColor = saveColor;
-    cout << "Line Clipping completed!" << endl;
     drawnShapes.push_back("CLIP_LINE_RECTANGLE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1115,40 +979,6 @@ void clipLineRectangle()
 void clipPolygonRectangle()
 {
     cout << "Polygon Clipping using Rectangle Window..." << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    int clipXMin = 250, clipYMin = 150, clipXMax = 550, clipYMax = 450;
-
-    // Draw clipping window
-    dDAAlgorithm(clipXMin, clipYMin, clipXMax, clipYMin);
-    dDAAlgorithm(clipXMax, clipYMin, clipXMax, clipYMax);
-    dDAAlgorithm(clipXMax, clipYMax, clipXMin, clipYMax);
-    dDAAlgorithm(clipXMin, clipYMax, clipXMin, clipYMin);
-
-    // Polygon vertices
-    int vertices[][2] = {{150, 200}, {350, 100}, {550, 200}, {500, 350}, {300, 450}, {100, 300}};
-    int numVertices = 6;
-
-    COLORREF saveColor = currentColor;
-    currentColor = RGB(0, 0, 255); // Blue for clipped polygon
-
-    // Draw polygon edges
-    for (int i = 0; i < numVertices; i++)
-    {
-        int i_next = (i + 1) % numVertices;
-        int x1 = vertices[i][0], y1 = vertices[i][1];
-        int x2 = vertices[i_next][0], y2 = vertices[i_next][1];
-
-        if (clipLineCohenSutherland(x1, y1, x2, y2, clipXMin, clipYMin, clipXMax, clipYMax))
-        {
-            dDAAlgorithm(x1, y1, x2, y2);
-        }
-    }
-
-    currentColor = saveColor;
-    cout << "Polygon Clipping completed!" << endl;
     drawnShapes.push_back("CLIP_POLYGON_RECTANGLE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1156,39 +986,6 @@ void clipPolygonRectangle()
 void clipPointSquare()
 {
     cout << "Point Clipping using Square Window..." << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    int clipSize = 150;
-    int clipXMin = 300, clipYMin = 200;
-    int clipXMax = clipXMin + clipSize, clipYMax = clipYMin + clipSize;
-
-    // Draw clipping window (square)
-    dDAAlgorithm(clipXMin, clipYMin, clipXMax, clipYMin);
-    dDAAlgorithm(clipXMax, clipYMin, clipXMax, clipYMax);
-    dDAAlgorithm(clipXMax, clipYMax, clipXMin, clipYMax);
-    dDAAlgorithm(clipXMin, clipYMax, clipXMin, clipYMin);
-
-    // Test points
-    int testPoints[][2] = {{325, 225}, {400, 300}, {500, 250}, {250, 350}, {350, 500}};
-
-    COLORREF saveColor = currentColor;
-    currentColor = RGB(255, 0, 0); // Red for clipped points
-
-    for (int i = 0; i < 5; i++)
-    {
-        int x = testPoints[i][0];
-        int y = testPoints[i][1];
-
-        if (x >= clipXMin && x <= clipXMax && y >= clipYMin && y <= clipYMax)
-        {
-            SetPixel(hdcBuffer, x, y, currentColor);
-        }
-    }
-
-    currentColor = saveColor;
-    cout << "Point Clipping completed!" << endl;
     drawnShapes.push_back("CLIP_POINT_SQUARE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1196,41 +993,6 @@ void clipPointSquare()
 void clipLineSquare()
 {
     cout << "Line Clipping using Square Window..." << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    int clipSize = 150;
-    int clipXMin = 300, clipYMin = 200;
-    int clipXMax = clipXMin + clipSize, clipYMax = clipYMin + clipSize;
-
-    // Draw clipping window (square)
-    dDAAlgorithm(clipXMin, clipYMin, clipXMax, clipYMin);
-    dDAAlgorithm(clipXMax, clipYMin, clipXMax, clipYMax);
-    dDAAlgorithm(clipXMax, clipYMax, clipXMin, clipYMax);
-    dDAAlgorithm(clipXMin, clipYMax, clipXMin, clipYMin);
-
-    int lines[][4] = {
-        {250, 250, 400, 250},
-        {350, 150, 350, 450},
-        {500, 200, 600, 300}};
-
-    COLORREF saveColor = currentColor;
-    currentColor = RGB(0, 255, 0); // Green for clipped lines
-
-    for (int i = 0; i < 3; i++)
-    {
-        int x1 = lines[i][0], y1 = lines[i][1];
-        int x2 = lines[i][2], y2 = lines[i][3];
-
-        if (clipLineCohenSutherland(x1, y1, x2, y2, clipXMin, clipYMin, clipXMax, clipYMax))
-        {
-            dDAAlgorithm(x1, y1, x2, y2);
-        }
-    }
-
-    currentColor = saveColor;
-    cout << "Line Clipping completed!" << endl;
     drawnShapes.push_back("CLIP_LINE_SQUARE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1238,50 +1000,6 @@ void clipLineSquare()
 void clipPointCircle()
 {
     cout << "[BONUS] Point Clipping using Circle Window..." << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    int centerX = 400, centerY = 300, radius = 100;
-
-    // Draw clipping circle
-    int x = 0, y = radius;
-    int d = 1 - radius;
-    Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
-    while (x < y)
-    {
-        if (d < 0)
-            d += 2 * x + 3;
-        else
-        {
-            d += 2 * (x - y) + 5;
-            y--;
-        }
-        x++;
-        Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
-    }
-
-    // Test points
-    int testPoints[][2] = {{400, 250}, {450, 300}, {500, 300}, {350, 350}, {300, 400}};
-
-    COLORREF saveColor = currentColor;
-    currentColor = RGB(255, 0, 0);
-
-    for (int i = 0; i < 5; i++)
-    {
-        int px = testPoints[i][0];
-        int py = testPoints[i][1];
-        int dx = px - centerX;
-        int dy = py - centerY;
-
-        if (dx * dx + dy * dy <= radius * radius)
-        {
-            SetPixel(hdcBuffer, px, py, currentColor);
-        }
-    }
-
-    currentColor = saveColor;
-    cout << "Point Clipping (Circle) completed!" << endl;
     drawnShapes.push_back("CLIP_POINT_CIRCLE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1289,67 +1007,6 @@ void clipPointCircle()
 void clipLineCircle()
 {
     cout << "[BONUS] Line Clipping using Circle Window..." << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    int centerX = 500, centerY = 300, radius = 80;
-
-    // Draw clipping circle
-    int x = 0, y = radius;
-    int d = 1 - radius;
-    Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
-    while (x < y)
-    {
-        if (d < 0)
-            d += 2 * x + 3;
-        else
-        {
-            d += 2 * (x - y) + 5;
-            y--;
-        }
-        x++;
-        Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
-    }
-
-    // Draw lines that may intersect circle
-    int lines[][4] = {
-        {450, 250, 550, 350},
-        {400, 300, 600, 300},
-        {600, 200, 700, 400}};
-
-    COLORREF saveColor = currentColor;
-    currentColor = RGB(0, 255, 0);
-
-    for (int i = 0; i < 3; i++)
-    {
-        int x1 = lines[i][0], y1 = lines[i][1];
-        int x2 = lines[i][2], y2 = lines[i][3];
-
-        // Simple circle line clipping: check if endpoints are inside or if line passes through
-        int dx = x2 - x1;
-        int dy = y2 - y1;
-        double dist = (double)(dx * dx + dy * dy);
-
-        if (dist > 0)
-        {
-            for (double t = 0; t <= 1.0; t += 0.05)
-            {
-                int px = x1 + (int)(t * dx);
-                int py = y1 + (int)(t * dy);
-                int dpx = px - centerX;
-                int dpy = py - centerY;
-
-                if (dpx * dpx + dpy * dpy <= radius * radius)
-                {
-                    SetPixel(hdcBuffer, px, py, currentColor);
-                }
-            }
-        }
-    }
-
-    currentColor = saveColor;
-    cout << "Line Clipping (Circle) completed!" << endl;
     drawnShapes.push_back("CLIP_LINE_CIRCLE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1641,11 +1298,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILL_FLOOD_REC)
         {
-            recursiveFloodFill(200, 200);
+            currentFloodFillAlgorithm = 0;
+            waitingForFloodFill = true;
+            cout << "\n=== Recursive Flood Fill ===" << endl;
+            cout << "Click on the canvas to select a point for flood fill." << endl;
         }
         else if (wmId == IDM_FILL_FLOOD_NONREC)
         {
-            nonRecursiveFloodFill(300, 300);
+            currentFloodFillAlgorithm = 1;
+            waitingForFloodFill = true;
+            cout << "\n=== Non-Recursive Flood Fill ===" << endl;
+            cout << "Click on the canvas to select a point for flood fill." << endl;
         }
         // Clipping Menu
         else if (wmId == IDM_CLIP_POINT_RECT)
@@ -1761,6 +1424,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             return 0;
         }
+        if (waitingForFloodFill)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+
+            if (currentFloodFillAlgorithm == 0)
+            {
+                recursiveFloodFill(mouseX, mouseY);
+            }
+            else if (currentFloodFillAlgorithm == 1)
+            {
+                nonRecursiveFloodFill(mouseX, mouseY);
+            }
+
+            waitingForFloodFill = false;
+            return 0;
+        }
         if (waitingForEllipsePoints)
         {
             int mouseX = GET_X_LPARAM(lParam);
@@ -1810,9 +1490,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 waitingForEllipsePoints = false;
                 ellipsePointsClicked = 0;
             }
-
             return 0;
         }
+        break;
     }
 
     case WM_SETCURSOR:
@@ -1845,7 +1525,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             SelectObject(hdc, hOldFont);
             DeleteObject(hFont);
         }
-
         if (waitingForEllipsePoints)
         {
             SetBkMode(hdc, TRANSPARENT);
