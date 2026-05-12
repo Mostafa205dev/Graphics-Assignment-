@@ -39,8 +39,9 @@ int circleCenterX, circleCenterY;
 int circlePointsClicked = 0;
 int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpoint, 4=Modified Midpoint
 
-// recursive flood fill state variable
+// flood fill state variable
 bool waitingForFloodFill = false;
+int currentFloodFillAlgorithm; // 0=Recursive, 1=Non-Recursive
 
 // Cursor state variable
 int currentCursorType = 0; // 0=Arrow, 1=Hand, 2=Wait, 3=Cross, 4=IBeam, 5=No, 6=SizeNS, 7=SizeWE
@@ -1216,13 +1217,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILL_FLOOD_REC)
         {
+            currentFloodFillAlgorithm = 0;
             waitingForFloodFill = true;
             cout << "\n=== Recursive Flood Fill ===" << endl;
             cout << "Click on the canvas to select a point for flood fill." << endl;
         }
         else if (wmId == IDM_FILL_FLOOD_NONREC)
         {
-            nonRecursiveFloodFill(300, 300);
+            currentFloodFillAlgorithm = 1;
+            waitingForFloodFill = true;
+            cout << "\n=== Non-Recursive Flood Fill ===" << endl;
+            cout << "Click on the canvas to select a point for flood fill." << endl;
         }
         // Clipping Menu
         else if (wmId == IDM_CLIP_POINT_RECT)
@@ -1343,7 +1348,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             int mouseX = GET_X_LPARAM(lParam);
             int mouseY = GET_Y_LPARAM(lParam);
 
-            recursiveFloodFill(mouseX, mouseY);
+            if (currentFloodFillAlgorithm == 0)
+            {
+                recursiveFloodFill(mouseX, mouseY);
+            }
+            else if (currentFloodFillAlgorithm == 1)
+            {
+                nonRecursiveFloodFill(mouseX, mouseY);
+            }
 
             waitingForFloodFill = false;
             return 0;
