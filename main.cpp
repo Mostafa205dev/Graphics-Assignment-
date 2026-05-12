@@ -12,6 +12,7 @@
 #include <sstream>
 #include <tchar.h>
 #include <windowsx.h>
+#include <stack>
 
 using namespace std;
 
@@ -837,87 +838,13 @@ void drawCardinalSplineCurve()
 void fillCircleWithLines(int quarter)
 {
     cout << "Filling circle with lines (Quarter: " << quarter << ")" << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    int centerX = 200, centerY = 200, radius = 100;
-
-    // Draw concentric circles from center to radius
-    for (int r = 1; r <= radius; r += 5)
-    {
-        int x = 0, y = r;
-        int d = 1 - r;
-
-        while (x <= y)
-        {
-            SetPixel(hdcBuffer, centerX + x, centerY + y, currentColor);
-            SetPixel(hdcBuffer, centerX - x, centerY + y, currentColor);
-            SetPixel(hdcBuffer, centerX + x, centerY - y, currentColor);
-            SetPixel(hdcBuffer, centerX - x, centerY - y, currentColor);
-            SetPixel(hdcBuffer, centerX + y, centerY + x, currentColor);
-            SetPixel(hdcBuffer, centerX - y, centerY + x, currentColor);
-            SetPixel(hdcBuffer, centerX + y, centerY - x, currentColor);
-            SetPixel(hdcBuffer, centerX - y, centerY - x, currentColor);
-
-            if (d < 0)
-            {
-                d += 2 * x + 3;
-            }
-            else
-            {
-                d += 2 * (x - y) + 5;
-                y--;
-            }
-            x++;
-        }
-    }
-
-    cout << "Circle filled with lines!" << endl;
     drawnShapes.push_back("FILL_CIRCLE_LINES: Quarter=" + to_string(quarter));
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
 void fillCircleWithCircles(int quarter)
 {
-    cout << "Filling circle with concentric circles (Quarter: " << quarter << ")" << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    int centerX = 550, centerY = 300, radius = 100;
-
-    // Draw concentric circles from center to radius
-    for (int r = 5; r <= radius; r += 5)
-    {
-        int x = 0, y = r;
-        int d = 1 - r;
-
-        while (x <= y)
-        {
-            SetPixel(hdcBuffer, centerX + x, centerY + y, currentColor);
-            SetPixel(hdcBuffer, centerX - x, centerY + y, currentColor);
-            SetPixel(hdcBuffer, centerX + x, centerY - y, currentColor);
-            SetPixel(hdcBuffer, centerX - x, centerY - y, currentColor);
-            SetPixel(hdcBuffer, centerX + y, centerY + x, currentColor);
-            SetPixel(hdcBuffer, centerX - y, centerY + x, currentColor);
-            SetPixel(hdcBuffer, centerX + y, centerY - x, currentColor);
-            SetPixel(hdcBuffer, centerX - y, centerY - x, currentColor);
-
-            if (d < 0)
-            {
-                d += 2 * x + 3;
-            }
-            else
-            {
-                d += 2 * (x - y) + 5;
-                y--;
-            }
-            x++;
-        }
-    }
-
-    cout << "Circle filled with concentric circles!" << endl;
+    cout << "Filling circle with other circles (Quarter: " << quarter << ")" << endl;
     drawnShapes.push_back("FILL_CIRCLE_CIRCLES: Quarter=" + to_string(quarter));
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -925,40 +852,6 @@ void fillCircleWithCircles(int quarter)
 void fillSquareWithHermitCurve()
 {
     cout << "Filling square with Hermit Curve [Vertical]..." << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    int startX = 100, startY = 100, squareSize = 150;
-    int endX = startX + squareSize, endY = startY + squareSize;
-
-    // Draw Hermite curves to fill the square vertically
-    // Hermite curve with control points and tangents
-    double p0x = startX, p0y = startY;
-    double p1x = endX, p1y = startY;
-    double p2x = startX, p2y = endY;
-    double p3x = endX, p3y = endY;
-
-    // Draw multiple vertical lines using Hermite interpolation
-    for (int x = startX; x <= endX; x += 3)
-    {
-        for (double t = 0; t <= 1.0; t += 0.01)
-        {
-            double t2 = t * t;
-            double t3 = t2 * t;
-
-            // Hermite basis functions
-            double h0 = 2 * t3 - 3 * t2 + 1;
-            double h1 = -2 * t3 + 3 * t2;
-            double h2 = t3 - 2 * t2 + t;
-            double h3 = t3 - t2;
-
-            double y = h0 * p0y + h1 * p2y + h2 * (p2y - p0y) + h3 * (p3y - p1y);
-            SetPixel(hdcBuffer, x, (int)(y + 0.5), currentColor);
-        }
-    }
-
-    cout << "Square filled with Hermit Curve!" << endl;
     drawnShapes.push_back("FILL_SQUARE_HERMIT");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -966,39 +859,6 @@ void fillSquareWithHermitCurve()
 void fillRectangleWithBezierCurve()
 {
     cout << "Filling rectangle with Bezier Curve [Horizontal]..." << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    // Define Bezier curve control points
-    double p0x = 100, p0y = 400;
-    double p1x = 200, p1y = 350;
-    double p2x = 600, p2y = 450;
-    double p3x = 700, p3y = 400;
-
-    // Draw multiple horizontal lines using Bezier curves
-    for (int y = 350; y <= 450; y += 3)
-    {
-        for (double t = 0; t <= 1.0; t += 0.01)
-        {
-            double t1 = 1.0 - t;
-            double t2 = t * t;
-            double t1_2 = t1 * t1;
-            double t1_3 = t1_2 * t1;
-            double t3 = t2 * t;
-
-            // Bezier basis functions
-            double b0 = t1_3;
-            double b1 = 3 * t * t1_2;
-            double b2 = 3 * t2 * t1;
-            double b3 = t3;
-
-            double x = b0 * p0x + b1 * p1x + b2 * p2x + b3 * p3x;
-            SetPixel(hdcBuffer, (int)(x + 0.5), y, currentColor);
-        }
-    }
-
-    cout << "Rectangle filled with Bezier Curve!" << endl;
     drawnShapes.push_back("FILL_RECTANGLE_BEZIER");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1006,131 +866,93 @@ void fillRectangleWithBezierCurve()
 void convexNonConvexFilling()
 {
     cout << "Convex and Non-Convex Filling Algorithm..." << endl;
-
-    if (!hdcBuffer)
-        return;
-
-    // Draw a convex polygon (triangle) and fill it using scanline approach
-    int vertices[][2] = {{300, 200}, {500, 200}, {400, 450}};
-    int numVertices = 3;
-
-    // Simple polygon filling: draw scanlines
-    int minY = vertices[0][1], maxY = vertices[0][1];
-    for (int i = 0; i < numVertices; i++)
-    {
-        if (vertices[i][1] < minY)
-            minY = vertices[i][1];
-        if (vertices[i][1] > maxY)
-            maxY = vertices[i][1];
-    }
-
-    for (int y = minY; y <= maxY; y++)
-    {
-        vector<int> intersections;
-
-        // Find intersections with each edge
-        for (int i = 0; i < numVertices; i++)
-        {
-            int i_next = (i + 1) % numVertices;
-            int y1 = vertices[i][1];
-            int y2 = vertices[i_next][1];
-            int x1 = vertices[i][0];
-            int x2 = vertices[i_next][0];
-
-            if ((y1 <= y && y < y2) || (y2 <= y && y < y1))
-            {
-                double x = x1 + (double)(y - y1) * (x2 - x1) / (y2 - y1);
-                intersections.push_back((int)x);
-            }
-        }
-
-        // Sort intersections and fill between pairs
-        if (intersections.size() >= 2)
-        {
-            sort(intersections.begin(), intersections.end());
-            for (int i = 0; i < intersections.size(); i += 2)
-            {
-                if (i + 1 < intersections.size())
-                {
-                    for (int x = intersections[i]; x <= intersections[i + 1]; x++)
-                    {
-                        SetPixel(hdcBuffer, x, y, currentColor);
-                    }
-                }
-            }
-        }
-    }
-
-    cout << "Polygon filled!" << endl;
     drawnShapes.push_back("FILL_CONVEX_NON_CONVEX");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-COLORREF floodFillColor = RGB(0, 0, 0);
-COLORREF floodFillBoundaryColor = RGB(0, 0, 0);
+void floodFillRec(int x, int y, COLORREF oldColor, COLORREF newColor)
+{
+    if (!hdcBuffer)
+        return;
 
+    // boundary checks
+    if (x < 0 || x >= WINDOW_WIDTH || y < 0 || y >= WINDOW_HEIGHT)
+        return;
+
+    COLORREF currentPixel = GetPixel(hdcBuffer, x, y);
+
+    // stop conditions
+    if (currentPixel != oldColor || currentPixel == newColor)
+        return;
+
+    // fill current pixel
+    SetPixel(hdcBuffer, x, y, newColor);
+
+    // recursive calls
+    floodFillRec(x + 1, y, oldColor, newColor);
+    floodFillRec(x - 1, y, oldColor, newColor);
+    floodFillRec(x, y + 1, oldColor, newColor);
+    floodFillRec(x, y - 1, oldColor, newColor);
+}
 void recursiveFloodFill(int x, int y)
 {
     cout << "Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
 
-    if (!hdcBuffer)
+    COLORREF oldColor = GetPixel(hdcBuffer, x, y);
+    COLORREF newColor = currentColor;
+
+    if (oldColor == newColor)
         return;
 
-    // This would require getting pixel color, which requires additional setup
-    // For now, we'll draw a simple filled circle as a demo
-    int radius = 50;
-    for (int yy = y - radius; yy <= y + radius; yy++)
-    {
-        for (int xx = x - radius; xx <= x + radius; xx++)
-        {
-            if ((xx - x) * (xx - x) + (yy - y) * (yy - y) <= radius * radius)
-            {
-                SetPixel(hdcBuffer, xx, yy, currentColor);
-            }
-        }
-    }
+    floodFillRec(x, y, oldColor, newColor);
 
-    cout << "Recursive Flood Fill completed!" << endl;
     drawnShapes.push_back("FILL_FLOOD_RECURSIVE: (" + to_string(x) + "," + to_string(y) + ")");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
+
+struct Point
+{
+    int x, y;
+};
 
 void nonRecursiveFloodFill(int x, int y)
 {
     cout << "Non-Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
 
-    if (!hdcBuffer)
+    COLORREF oldColor = GetPixel(hdcBuffer, x, y);
+    COLORREF newColor = currentColor;
+
+    if (oldColor == newColor)
         return;
 
-    // Non-recursive flood fill using queue
-    queue<pair<int, int>> fillQueue;
-    fillQueue.push(make_pair(x, y));
+    stack<Point> S;
+    S.push({x, y});
 
-    int radius = 50;
-
-    while (!fillQueue.empty())
+    while (!S.empty())
     {
-        pair<int, int> current = fillQueue.front();
-        fillQueue.pop();
-        int cx = current.first;
-        int cy = current.second;
+        Point p = S.top();
+        S.pop();
 
-        if ((cx - x) * (cx - x) + (cy - y) * (cy - y) <= radius * radius)
-        {
-            SetPixel(hdcBuffer, cx, cy, currentColor);
+        // boundary check
+        if (p.x < 0 || p.x >= WINDOW_WIDTH || p.y < 0 || p.y >= WINDOW_HEIGHT)
+            continue;
 
-            if ((cx - x + 1) * (cx - x + 1) + (cy - y) * (cy - y) <= radius * radius)
-                fillQueue.push(make_pair(cx + 1, cy));
-            if ((cx - x - 1) * (cx - x - 1) + (cy - y) * (cy - y) <= radius * radius)
-                fillQueue.push(make_pair(cx - 1, cy));
-            if ((cx - x) * (cx - x) + (cy - y + 1) * (cy - y + 1) <= radius * radius)
-                fillQueue.push(make_pair(cx, cy + 1));
-            if ((cx - x) * (cx - x) + (cy - y - 1) * (cy - y - 1) <= radius * radius)
-                fillQueue.push(make_pair(cx, cy - 1));
-        }
+        COLORREF currentPixel = GetPixel(hdcBuffer, p.x, p.y);
+
+        // stop condition
+        if (currentPixel != oldColor || currentPixel == newColor)
+            continue;
+
+        // fill
+        SetPixel(hdcBuffer, p.x, p.y, newColor);
+
+        // neighbors
+        S.push({p.x + 1, p.y});
+        S.push({p.x - 1, p.y});
+        S.push({p.x, p.y + 1});
+        S.push({p.x, p.y - 1});
     }
 
-    cout << "Non-Recursive Flood Fill completed!" << endl;
     drawnShapes.push_back("FILL_FLOOD_NON_RECURSIVE: (" + to_string(x) + "," + to_string(y) + ")");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1158,8 +980,7 @@ int getClipCode(int x, int y, int xMin, int yMin, int xMax, int yMax)
     return code;
 }
 
-bool clipLineCohenSutherland(int &x1, int &y1, int &x2, int &y2,
-                             int xMin, int yMin, int xMax, int yMax)
+bool clipLineCohenSutherland(int &x1, int &y1, int &x2, int &y2, int xMin, int yMin, int xMax, int yMax)
 {
     int code1 = getClipCode(x1, y1, xMin, yMin, xMax, yMax);
     int code2 = getClipCode(x2, y2, xMin, yMin, xMax, yMax);
