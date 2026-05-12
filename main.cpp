@@ -10,7 +10,7 @@
 #include <sstream>
 #include <tchar.h>
 #include <windowsx.h>
-
+#include <stack>
 using namespace std;
 
 // ==================== Constants ====================
@@ -39,10 +39,8 @@ int circleCenterX, circleCenterY;
 int circlePointsClicked = 0;
 int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpoint, 4=Modified Midpoint
 
-
 // recursive flood fill state variable
 bool waitingForFloodFill = false;
-
 
 // Cursor state variable
 int currentCursorType = 0; // 0=Arrow, 1=Hand, 2=Wait, 3=Cross, 4=IBeam, 5=No, 6=SizeNS, 7=SizeWE
@@ -807,9 +805,11 @@ void convexNonConvexFilling()
     drawnShapes.push_back("FILL_CONVEX_NON_CONVEX");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
-void floodFillRec(int x, int y, COLORREF targetColor, COLORREF newColor)
+
+void floodFillRec(int x, int y, COLORREF oldColor, COLORREF newColor)
 {
-    if (!hdcBuffer) return;
+    if (!hdcBuffer)
+        return;
 
     // boundary checks
     if (x < 0 || x >= WINDOW_WIDTH || y < 0 || y >= WINDOW_HEIGHT)
@@ -818,36 +818,77 @@ void floodFillRec(int x, int y, COLORREF targetColor, COLORREF newColor)
     COLORREF currentPixel = GetPixel(hdcBuffer, x, y);
 
     // stop conditions
-    if (currentPixel != targetColor || currentPixel == newColor)
+    if (currentPixel != oldColor || currentPixel == newColor)
         return;
 
     // fill current pixel
     SetPixel(hdcBuffer, x, y, newColor);
 
-    // 4-direction recursive calls
-    floodFillRec(x + 1, y, targetColor, newColor);
-    floodFillRec(x - 1, y, targetColor, newColor);
-    floodFillRec(x, y + 1, targetColor, newColor);
-    floodFillRec(x, y - 1, targetColor, newColor);
+    // recursive calls
+    floodFillRec(x + 1, y, oldColor, newColor);
+    floodFillRec(x - 1, y, oldColor, newColor);
+    floodFillRec(x, y + 1, oldColor, newColor);
+    floodFillRec(x, y - 1, oldColor, newColor);
 }
 void recursiveFloodFill(int x, int y)
 {
     cout << "Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
 
-    COLORREF targetColor = GetPixel(hdcBuffer, x, y);
+    COLORREF oldColor = GetPixel(hdcBuffer, x, y);
     COLORREF newColor = currentColor;
 
-    if (targetColor == newColor) return;
+    if (oldColor == newColor)
+        return;
 
-    floodFillRec(x, y, targetColor, newColor);
+    floodFillRec(x, y, oldColor, newColor);
 
     drawnShapes.push_back("FILL_FLOOD_RECURSIVE: (" + to_string(x) + "," + to_string(y) + ")");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
+struct Point
+{
+    int x, y;
+};
+
 void nonRecursiveFloodFill(int x, int y)
 {
     cout << "Non-Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
+
+    COLORREF oldColor = GetPixel(hdcBuffer, x, y);
+    COLORREF newColor = currentColor;
+
+    if (oldColor == newColor)
+        return;
+
+    stack<Point> S;
+    S.push({x, y});
+
+    while (!S.empty())
+    {
+        Point p = S.top();
+        S.pop();
+
+        // boundary check
+        if (p.x < 0 || p.x >= WINDOW_WIDTH || p.y < 0 || p.y >= WINDOW_HEIGHT)
+            continue;
+
+        COLORREF currentPixel = GetPixel(hdcBuffer, p.x, p.y);
+
+        // stop condition
+        if (currentPixel != oldColor || currentPixel == newColor)
+            continue;
+
+        // fill
+        SetPixel(hdcBuffer, p.x, p.y, newColor);
+
+        // neighbors
+        S.push({p.x + 1, p.y});
+        S.push({p.x - 1, p.y});
+        S.push({p.x, p.y + 1});
+        S.push({p.x, p.y - 1});
+    }
+
     drawnShapes.push_back("FILL_FLOOD_NON_RECURSIVE: (" + to_string(x) + "," + to_string(y) + ")");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
