@@ -1016,6 +1016,32 @@ void clipLineCircle()
 void drawHappyFace()
 {
     cout << "[BONUS] Drawing Happy Face..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int centerX = WINDOW_WIDTH / 2;
+    int centerY = WINDOW_HEIGHT / 2;
+    int headRadius = 100;
+    int eyeRadius = 8;
+    int mouthRadius = 40;
+
+    // Draw head
+    drawCircleMidpoint(centerX, centerY, headRadius);
+
+    // Draw left eye
+    drawCircleMidpoint(centerX - 30, centerY - 30, eyeRadius);
+
+    // Draw right eye
+    drawCircleMidpoint(centerX + 30, centerY - 30, eyeRadius);
+
+    // Draw smile (curved line using small circles)
+    for (int i = -35; i <= 35; i++)
+    {
+        int y = (int)(mouthRadius - sqrt(mouthRadius * mouthRadius - i * i) + centerY);
+        SetPixel(hdcBuffer, centerX + i, y, currentColor);
+    }
+
     drawnShapes.push_back("BONUS_HAPPY_FACE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1023,6 +1049,32 @@ void drawHappyFace()
 void drawSadFace()
 {
     cout << "[BONUS] Drawing Sad Face..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int centerX = WINDOW_WIDTH / 2;
+    int centerY = WINDOW_HEIGHT / 2;
+    int headRadius = 100;
+    int eyeRadius = 8;
+    int mouthRadius = 40;
+
+    // Draw head
+    drawCircleMidpoint(centerX, centerY, headRadius);
+
+    // Draw left eye
+    drawCircleMidpoint(centerX - 30, centerY - 30, eyeRadius);
+
+    // Draw right eye
+    drawCircleMidpoint(centerX + 30, centerY - 30, eyeRadius);
+
+    // Draw frown (curved line using small circles - inverted from smile)
+    for (int i = -35; i <= 35; i++)
+    {
+        int y = (int)(centerY + 50 - (mouthRadius - sqrt(mouthRadius * mouthRadius - i * i)));
+        SetPixel(hdcBuffer, centerX + i, y, currentColor);
+    }
+
     drawnShapes.push_back("BONUS_SAD_FACE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
