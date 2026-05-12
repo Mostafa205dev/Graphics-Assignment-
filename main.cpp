@@ -45,6 +45,13 @@ int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpo
 // flood fill state variable
 bool waitingForFloodFill = false;
 int currentFloodFillAlgorithm; // 0=Recursive, 1=Non-Recursive
+// Ellipse drawing state variables
+bool waitingForEllipsePoints = false;
+int ellipseCenterX, ellipseCenterY;
+int ellipseRadiusAX, ellipseRadiusAY;
+int ellipseRadiusBX, ellipseRadiusBY;
+int ellipsePointsClicked = 0;
+int currentEllipseAlgorithm = 0; // 0=Direct, 1=Polar, 2=Midpoint
 
 // Cursor state variable
 int currentCursorType = 0; // 0=Arrow, 1=Hand, 2=Wait, 3=Cross, 4=IBeam, 5=No, 6=SizeNS, 7=SizeWE
@@ -698,19 +705,37 @@ void drawCircleModifiedMidpoint(int centerX, int centerY, int radius)
 
 // ==================== Ellipse Menu Functions ====================
 
+// Helper function to draw 4 quadrant points for ellipse
+
+void Draw4EllipsePoints(HDC hdc, int xc, int yc, int x, int y, COLORREF color)
+{
+    SetPixel(hdc, xc + x, yc + y, color);
+    SetPixel(hdc, xc - x, yc + y, color);
+    SetPixel(hdc, xc + x, yc - y, color);
+    SetPixel(hdc, xc - x, yc - y, color);
+}
+
 void drawEllipseDirect(int centerX, int centerY, int radA, int radB)
 {
     cout << "Drawing ellipse using Direct algorithm at (" << centerX << ","
          << centerY << ") with radii " << radA << ", " << radB << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    double a2 = (double)radA * radA;
+    double b2 = (double)radB * radB;
+    cout << "centerx and centerY are " << centerX << " and " << centerY << endl;
+    float x = 0;
+    float y = radB;
+
+    Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
+
+    while (x < radA)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radA, centerY - radB,
-            centerX + radA, centerY + radB, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        x += .25;
+        y = round(sqrt(b2 * (1.0 - (x * x) / a2)));
+        Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
     }
 
     cout << "Ellipse drawn!" << endl;
@@ -724,14 +749,21 @@ void drawEllipsePolar(int centerX, int centerY, int radA, int radB)
     cout << "Drawing ellipse using Polar algorithm at (" << centerX << ","
          << centerY << ") with radii " << radA << ", " << radB << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    double theta = 0.0;
+    double dtheta = 1.0 / max(radA, radB);
+    int x = radA, y = 0;
+
+    Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
+
+    while (theta < M_PI / 2.0)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radA, centerY - radB,
-            centerX + radA, centerY + radB, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        theta += dtheta;
+        x = round(radA * cos(theta));
+        y = round(radB * sin(theta));
+        Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
     }
 
     cout << "Ellipse drawn!" << endl;
@@ -745,14 +777,47 @@ void drawEllipseMidpoint(int centerX, int centerY, int radA, int radB)
     cout << "Drawing ellipse using Midpoint algorithm at (" << centerX << ","
          << centerY << ") with radii " << radA << ", " << radB << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    int a = radA;
+    int b = radB;
+    int a2 = a * a;
+    int b2 = b * b;
+    int x = 0, y = b;
+    double d = b2 - a2 * b + a2 / 4;
+
+    Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
+
+    while (b2 * x <= a2 * y)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radA, centerY - radB,
-            centerX + radA, centerY + radB, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        if (d < 0)
+        {
+            d += b2 * (2 * x + 3);
+        }
+        else
+        {
+            d += b2 * (2 * x + 3) - a2 * (2 * y - 2);
+            y--;
+        }
+        x++;
+        Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
+    }
+
+    d = b2 * (x + 0.5) * (x + 0.5) + a2 * (y - 1) * (y - 1) - a2 * b2;
+    while (y > 0)
+    {
+        if (d < 0)
+        {
+            d += b2 * (2 * x + 2) + a2 * (-2 * y + 3);
+            x++;
+        }
+        else
+        {
+            d += a2 * (-2 * y + 3);
+        }
+        y--;
+        Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
     }
 
     cout << "Ellipse drawn!" << endl;
@@ -869,7 +934,7 @@ void floodFillRec(int x, int y, COLORREF oldColor, COLORREF newColor)
         return;
 
     // boundary checks
-    if (x < 0 || x >= WINDOW_WIDTH || y < 0 || y >= WINDOW_HEIGHT)
+    if (x < 0 || x >= WINDOW_WIDTH - 1 || y < 0 || y >= WINDOW_HEIGHT - 1)
         return;
 
     COLORREF currentPixel = GetPixel(hdcBuffer, x, y);
@@ -887,6 +952,7 @@ void floodFillRec(int x, int y, COLORREF oldColor, COLORREF newColor)
     floodFillRec(x, y + 1, oldColor, newColor);
     floodFillRec(x, y - 1, oldColor, newColor);
 }
+
 void recursiveFloodFill(int x, int y)
 {
     cout << "Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
@@ -1006,6 +1072,32 @@ void clipLineCircle()
 void drawHappyFace()
 {
     cout << "[BONUS] Drawing Happy Face..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int centerX = WINDOW_WIDTH / 2;
+    int centerY = WINDOW_HEIGHT / 2;
+    int headRadius = 100;
+    int eyeRadius = 8;
+    int mouthRadius = 40;
+
+    // Draw head
+    drawCircleMidpoint(centerX, centerY, headRadius);
+
+    // Draw left eye
+    drawCircleMidpoint(centerX - 30, centerY - 30, eyeRadius);
+
+    // Draw right eye
+    drawCircleMidpoint(centerX + 30, centerY - 30, eyeRadius);
+
+    // Draw smile (curved line using small circles)
+    for (int i = -35; i <= 35; i++)
+    {
+        int y = (int)(mouthRadius - sqrt(mouthRadius * mouthRadius - i * i) + centerY);
+        SetPixel(hdcBuffer, centerX + i, y, currentColor);
+    }
+
     drawnShapes.push_back("BONUS_HAPPY_FACE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1013,6 +1105,32 @@ void drawHappyFace()
 void drawSadFace()
 {
     cout << "[BONUS] Drawing Sad Face..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int centerX = WINDOW_WIDTH / 2;
+    int centerY = WINDOW_HEIGHT / 2;
+    int headRadius = 100;
+    int eyeRadius = 8;
+    int mouthRadius = 40;
+
+    // Draw head
+    drawCircleMidpoint(centerX, centerY, headRadius);
+
+    // Draw left eye
+    drawCircleMidpoint(centerX - 30, centerY - 30, eyeRadius);
+
+    // Draw right eye
+    drawCircleMidpoint(centerX + 30, centerY - 30, eyeRadius);
+
+    // Draw frown (curved line using small circles - inverted from smile)
+    for (int i = -35; i <= 35; i++)
+    {
+        int y = (int)(centerY + 50 - (mouthRadius - sqrt(mouthRadius * mouthRadius - i * i)));
+        SetPixel(hdcBuffer, centerX + i, y, currentColor);
+    }
+
     drawnShapes.push_back("BONUS_SAD_FACE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1235,15 +1353,30 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Ellipse Menu
         else if (wmId == IDM_ELLIPSE_DIRECT)
         {
-            drawEllipseDirect(250, 250, 100, 60);
+            waitingForEllipsePoints = true;
+            ellipsePointsClicked = 0;
+            currentEllipseAlgorithm = 0;
+
+            cout << "\n=== Direct Ellipse Drawing ===" << endl;
+            cout << "Click center of ellipse, then click X-radius point, then click Y-radius point." << endl;
         }
         else if (wmId == IDM_ELLIPSE_POLAR)
         {
-            drawEllipsePolar(350, 300, 110, 70);
+            waitingForEllipsePoints = true;
+            ellipsePointsClicked = 0;
+            currentEllipseAlgorithm = 1;
+
+            cout << "\n=== Polar Ellipse Drawing ===" << endl;
+            cout << "Click center of ellipse, then click X-radius point, then click Y-radius point." << endl;
         }
         else if (wmId == IDM_ELLIPSE_MIDPOINT)
         {
-            drawEllipseMidpoint(450, 350, 120, 80);
+            waitingForEllipsePoints = true;
+            ellipsePointsClicked = 0;
+            currentEllipseAlgorithm = 2;
+
+            cout << "\n=== Midpoint Ellipse Drawing ===" << endl;
+            cout << "Click center of ellipse, then click X-radius point, then click Y-radius point." << endl;
         }
         // Curves Menu
         else if (wmId == IDM_CURVE_SPLINE)
@@ -1444,6 +1577,58 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             waitingForFloodFill = false;
             return 0;
         }
+        if (waitingForEllipsePoints)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+
+            if (ellipsePointsClicked == 0)
+            {
+                ellipseCenterX = mouseX;
+                ellipseCenterY = mouseY;
+                ellipsePointsClicked = 1;
+
+                cout << "Center selected: ("
+                     << ellipseCenterX << ","
+                     << ellipseCenterY << ")" << endl;
+                cout << "Click X-radius point..." << endl;
+            }
+            else if (ellipsePointsClicked == 1)
+            {
+                ellipseRadiusAX = mouseX;
+                ellipseRadiusAY = mouseY;
+                ellipsePointsClicked = 2;
+
+                int radA = abs(ellipseRadiusAX - ellipseCenterX);
+                cout << "X-radius point selected. Horizontal radius: " << radA << endl;
+                cout << "Click Y-radius point..." << endl;
+            }
+            else if (ellipsePointsClicked == 2)
+            {
+                ellipseRadiusBX = mouseX;
+                ellipseRadiusBY = mouseY;
+                ellipsePointsClicked = 3;
+
+                int radA = abs(ellipseRadiusAX - ellipseCenterX);
+                int radB = abs(ellipseRadiusBY - ellipseCenterY);
+
+                cout << "Y-radius point selected. Radii: A=" << radA << ", B=" << radB << endl;
+                cout << "Drawing ellipse..." << endl;
+
+                // Draw the ellipse based on the selected algorithm
+                if (currentEllipseAlgorithm == 0)
+                    drawEllipseDirect(ellipseCenterX, ellipseCenterY, radA, radB);
+                else if (currentEllipseAlgorithm == 1)
+                    drawEllipsePolar(ellipseCenterX, ellipseCenterY, radA, radB);
+                else if (currentEllipseAlgorithm == 2)
+                    drawEllipseMidpoint(ellipseCenterX, ellipseCenterY, radA, radB);
+
+                waitingForEllipsePoints = false;
+                ellipsePointsClicked = 0;
+            }
+            return 0;
+        }
+        break;
     }
 
     case WM_SETCURSOR:
@@ -1472,6 +1657,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 TextOut(hdc, 10, 10, L"Click to select FIRST point", 27);
             else
                 TextOut(hdc, 10, 10, L"Click to select SECOND point", 28);
+
+            SelectObject(hdc, hOldFont);
+            DeleteObject(hFont);
+        }
+        if (waitingForEllipsePoints)
+        {
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(0, 0, 255));
+            HFONT hFont = CreateFont(20, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 0, L"Arial");
+            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+
+            if (ellipsePointsClicked == 0)
+                TextOut(hdc, 10, 10, L"Click to select CENTER point", 28);
+            else if (ellipsePointsClicked == 1)
+                TextOut(hdc, 10, 10, L"Click to select X-RADIUS point", 30);
+            else if (ellipsePointsClicked == 2)
+                TextOut(hdc, 10, 10, L"Click to select Y-RADIUS point", 30);
 
             SelectObject(hdc, hOldFont);
             DeleteObject(hFont);
