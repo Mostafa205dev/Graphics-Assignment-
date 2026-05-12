@@ -39,6 +39,9 @@ int circleCenterX, circleCenterY;
 int circlePointsClicked = 0;
 int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpoint, 4=Modified Midpoint
 
+// fill cricles with lines
+// bool waitingForFillCircleWithLines = false;
+
 // flood fill state variable
 bool waitingForFloodFill = false;
 int currentFloodFillAlgorithm; // 0=Recursive, 1=Non-Recursive
@@ -771,11 +774,64 @@ void drawCardinalSplineCurve()
 }
 
 // ==================== Filling Menu Functions ====================
-
-void fillCircleWithLines(int quarter)
+bool getLastCircle(int &cx, int &cy, int &r)
 {
-    cout << "Filling circle with lines (Quarter: " << quarter << ")" << endl;
-    drawnShapes.push_back("FILL_CIRCLE_LINES: Quarter=" + to_string(quarter));
+    for (int i = (int)drawnShapes.size() - 1; i >= 0; i--)
+    {
+        string s = drawnShapes[i];
+
+        if (s.find("CIRCLE_") == 0)
+        {
+            if (sscanf_s(s.c_str(),
+                "%*[^:]: center(%d,%d) radius=%d",
+                &cx, &cy, &r) == 3)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+void fillCircleWithLinesQuarter(int xc, int yc, int r, int quarter)
+{
+    if (!hdcBuffer)
+        return;
+
+    double startAngle = 0, endAngle = 0;
+
+    switch (quarter)
+    {
+    case 1:
+        startAngle = 0;
+        endAngle = 90;
+        break;
+    case 2:
+        startAngle = 90;
+        endAngle = 180;
+        break;
+    case 3:
+        startAngle = 180;
+        endAngle = 270;
+        break;
+    case 4:
+        startAngle = 270;
+        endAngle = 360;
+        break;
+    }
+
+    for (double angle = startAngle; angle <= endAngle; angle += 1.0)
+    {
+        double rad = angle * 3.14159265 / 180.0;
+
+        int x = xc + (int)(r * cos(rad));
+        int y = yc + (int)(r * sin(rad));
+
+        MoveToEx(hdcBuffer, xc, yc, NULL);
+        LineTo(hdcBuffer, x, y);
+    }
+
+    drawnShapes.push_back("FILL_CIRCLE_LINES_QUARTER");
+
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
@@ -1197,7 +1253,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Filling Menu
         else if (wmId == IDM_FILL_CIRCLE_LINES)
         {
-            fillCircleWithLines(1);
+            int cx, cy, r;
+
+            if (getLastCircle(cx, cy, r))
+            {
+                cout << "Filling last drawn circle with lines..." << endl;
+
+                fillCircleWithLinesQuarter(cx, cy, r, 1);
+
+                InvalidateRect(hMainWindow, NULL, FALSE);
+            }
+            else
+            {
+                MessageBox(hMainWindow,
+                           _T("No circle found! Draw a circle first."),
+                           _T("Error"),
+                           MB_OK | MB_ICONERROR);
+            }
         }
         else if (wmId == IDM_FILL_CIRCLE_CIRCLES)
         {
@@ -1343,6 +1415,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             return 0;
         }
+        // if (waitingForFillCircleWithLines)
+        // {
+        //     int mouseX = GET_X_LPARAM(lParam);
+        //     int mouseY = GET_Y_LPARAM(lParam);
+
+        //     int radius = 100;
+
+        //     fillCircleWithLinesQuarter(mouseX, mouseY, radius, 1);
+
+        //     waitingForFillCircleWithLines = false;
+        //     return 0;
+        // }
         if (waitingForFloodFill)
         {
             int mouseX = GET_X_LPARAM(lParam);
