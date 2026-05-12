@@ -39,6 +39,11 @@ int circleCenterX, circleCenterY;
 int circlePointsClicked = 0;
 int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpoint, 4=Modified Midpoint
 
+
+// recursive flood fill state variable
+bool waitingForFloodFill = false;
+
+
 // Cursor state variable
 int currentCursorType = 0; // 0=Arrow, 1=Hand, 2=Wait, 3=Cross, 4=IBeam, 5=No, 6=SizeNS, 7=SizeWE
 LPCTSTR cursorTypeNames[] = {_T("Arrow"), _T("Hand"), _T("Wait (Hourglass)"), _T("Cross"), _T("IBeam"), _T("No/Prohibited"), _T("Size NS"), _T("Size WE")};
@@ -802,10 +807,40 @@ void convexNonConvexFilling()
     drawnShapes.push_back("FILL_CONVEX_NON_CONVEX");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
+void floodFillRec(int x, int y, COLORREF targetColor, COLORREF newColor)
+{
+    if (!hdcBuffer) return;
 
+    // boundary checks
+    if (x < 0 || x >= WINDOW_WIDTH || y < 0 || y >= WINDOW_HEIGHT)
+        return;
+
+    COLORREF currentPixel = GetPixel(hdcBuffer, x, y);
+
+    // stop conditions
+    if (currentPixel != targetColor || currentPixel == newColor)
+        return;
+
+    // fill current pixel
+    SetPixel(hdcBuffer, x, y, newColor);
+
+    // 4-direction recursive calls
+    floodFillRec(x + 1, y, targetColor, newColor);
+    floodFillRec(x - 1, y, targetColor, newColor);
+    floodFillRec(x, y + 1, targetColor, newColor);
+    floodFillRec(x, y - 1, targetColor, newColor);
+}
 void recursiveFloodFill(int x, int y)
 {
     cout << "Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
+
+    COLORREF targetColor = GetPixel(hdcBuffer, x, y);
+    COLORREF newColor = currentColor;
+
+    if (targetColor == newColor) return;
+
+    floodFillRec(x, y, targetColor, newColor);
+
     drawnShapes.push_back("FILL_FLOOD_RECURSIVE: (" + to_string(x) + "," + to_string(y) + ")");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1140,7 +1175,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILL_FLOOD_REC)
         {
-            recursiveFloodFill(200, 200);
+            waitingForFloodFill = true;
+            cout << "\n=== Recursive Flood Fill ===" << endl;
+            cout << "Click on the canvas to select a point for flood fill." << endl;
         }
         else if (wmId == IDM_FILL_FLOOD_NONREC)
         {
@@ -1258,6 +1295,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 circlePointsClicked = 0;
             }
 
+            return 0;
+        }
+        if (waitingForFloodFill)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+
+            recursiveFloodFill(mouseX, mouseY);
+
+            waitingForFloodFill = false;
             return 0;
         }
     }
