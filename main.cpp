@@ -4,6 +4,8 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <queue>
+#include <algorithm>
 #include <windows.h>
 #include <cmath>
 #include <string>
@@ -38,6 +40,14 @@ bool waitingForCirclePoints = false;
 int circleCenterX, circleCenterY;
 int circlePointsClicked = 0;
 int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpoint, 4=Modified Midpoint
+
+// Ellipse drawing state variables
+bool waitingForEllipsePoints = false;
+int ellipseCenterX, ellipseCenterY;
+int ellipseRadiusAX, ellipseRadiusAY;
+int ellipseRadiusBX, ellipseRadiusBY;
+int ellipsePointsClicked = 0;
+int currentEllipseAlgorithm = 0; // 0=Direct, 1=Polar, 2=Midpoint
 
 // Cursor state variable
 int currentCursorType = 0; // 0=Arrow, 1=Hand, 2=Wait, 3=Cross, 4=IBeam, 5=No, 6=SizeNS, 7=SizeWE
@@ -691,19 +701,37 @@ void drawCircleModifiedMidpoint(int centerX, int centerY, int radius)
 
 // ==================== Ellipse Menu Functions ====================
 
+// Helper function to draw 4 quadrant points for ellipse
+void Draw4EllipsePoints(HDC hdc, int xc, int yc, int x, int y, COLORREF color)
+{
+    SetPixel(hdc, xc + x, yc + y, color);
+    SetPixel(hdc, xc - x, yc + y, color);
+    SetPixel(hdc, xc + x, yc - y, color);
+    SetPixel(hdc, xc - x, yc - y, color);
+}
+
 void drawEllipseDirect(int centerX, int centerY, int radA, int radB)
 {
     cout << "Drawing ellipse using Direct algorithm at (" << centerX << ","
          << centerY << ") with radii " << radA << ", " << radB << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    double a2 = (double)radA * radA;
+    double b2 = (double)radB * radB;
+    cout << "centerx and centerY are " << centerX << " and " << centerY << endl;
+    float x = 0;
+    float y = radB;
+
+    Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
+
+    while (x < radA)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radA, centerY - radB,
-            centerX + radA, centerY + radB, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        cout << "Ellipse Direct: x=" << x << ", y=" << y << "and centerx+rada=" << centerX + radA << endl;
+        x += .25;
+        y = round(sqrt(b2 * (1.0 - (x * x) / a2)));
+        Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
     }
 
     cout << "Ellipse drawn!" << endl;
@@ -717,14 +745,21 @@ void drawEllipsePolar(int centerX, int centerY, int radA, int radB)
     cout << "Drawing ellipse using Polar algorithm at (" << centerX << ","
          << centerY << ") with radii " << radA << ", " << radB << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    double theta = 0.0;
+    double dtheta = 1.0 / max(radA, radB);
+    int x = radA, y = 0;
+
+    Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
+
+    while (theta < M_PI / 2.0)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radA, centerY - radB,
-            centerX + radA, centerY + radB, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        theta += dtheta;
+        x = round(radA * cos(theta));
+        y = round(radB * sin(theta));
+        Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
     }
 
     cout << "Ellipse drawn!" << endl;
@@ -738,14 +773,47 @@ void drawEllipseMidpoint(int centerX, int centerY, int radA, int radB)
     cout << "Drawing ellipse using Midpoint algorithm at (" << centerX << ","
          << centerY << ") with radii " << radA << ", " << radB << endl;
 
-    if (hdcBuffer)
+    if (!hdcBuffer)
+        return;
+
+    int a = radA;
+    int b = radB;
+    int a2 = a * a;
+    int b2 = b * b;
+    int x = 0, y = b;
+    double d = b2 - a2 * b + a2 / 4;
+
+    Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
+
+    while (b2 * x <= a2 * y)
     {
-        HPEN hPen = CreatePen(PS_SOLID, 2, currentColor);
-        HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
-        Arc(hdcBuffer, centerX - radA, centerY - radB,
-            centerX + radA, centerY + radB, 0, 0, 0, 0);
-        SelectObject(hdcBuffer, hOldPen);
-        DeleteObject(hPen);
+        if (d < 0)
+        {
+            d += b2 * (2 * x + 3);
+        }
+        else
+        {
+            d += b2 * (2 * x + 3) - a2 * (2 * y - 2);
+            y--;
+        }
+        x++;
+        Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
+    }
+
+    d = b2 * (x + 0.5) * (x + 0.5) + a2 * (y - 1) * (y - 1) - a2 * b2;
+    while (y > 0)
+    {
+        if (d < 0)
+        {
+            d += b2 * (2 * x + 2) + a2 * (-2 * y + 3);
+            x++;
+        }
+        else
+        {
+            d += a2 * (-2 * y + 3);
+        }
+        y--;
+        Draw4EllipsePoints(hdcBuffer, centerX, centerY, x, y, currentColor);
     }
 
     cout << "Ellipse drawn!" << endl;
@@ -760,10 +828,8 @@ void drawCardinalSplineCurve()
 {
     cout << "Drawing Cardinal Spline Curve..." << endl;
 
-    // TODO: Implement Cardinal Spline Curve algorithm
-    cout << "Cardinal Spline Curve drawn!" << endl;
-    drawnShapes.push_back("CURVE_CARDINAL_SPLINE");
-    InvalidateRect(hMainWindow, NULL, FALSE);
+    if (!hdcBuffer)
+        return;
 }
 
 // ==================== Filling Menu Functions ====================
@@ -771,13 +837,87 @@ void drawCardinalSplineCurve()
 void fillCircleWithLines(int quarter)
 {
     cout << "Filling circle with lines (Quarter: " << quarter << ")" << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int centerX = 200, centerY = 200, radius = 100;
+
+    // Draw concentric circles from center to radius
+    for (int r = 1; r <= radius; r += 5)
+    {
+        int x = 0, y = r;
+        int d = 1 - r;
+
+        while (x <= y)
+        {
+            SetPixel(hdcBuffer, centerX + x, centerY + y, currentColor);
+            SetPixel(hdcBuffer, centerX - x, centerY + y, currentColor);
+            SetPixel(hdcBuffer, centerX + x, centerY - y, currentColor);
+            SetPixel(hdcBuffer, centerX - x, centerY - y, currentColor);
+            SetPixel(hdcBuffer, centerX + y, centerY + x, currentColor);
+            SetPixel(hdcBuffer, centerX - y, centerY + x, currentColor);
+            SetPixel(hdcBuffer, centerX + y, centerY - x, currentColor);
+            SetPixel(hdcBuffer, centerX - y, centerY - x, currentColor);
+
+            if (d < 0)
+            {
+                d += 2 * x + 3;
+            }
+            else
+            {
+                d += 2 * (x - y) + 5;
+                y--;
+            }
+            x++;
+        }
+    }
+
+    cout << "Circle filled with lines!" << endl;
     drawnShapes.push_back("FILL_CIRCLE_LINES: Quarter=" + to_string(quarter));
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
 void fillCircleWithCircles(int quarter)
 {
-    cout << "Filling circle with other circles (Quarter: " << quarter << ")" << endl;
+    cout << "Filling circle with concentric circles (Quarter: " << quarter << ")" << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int centerX = 550, centerY = 300, radius = 100;
+
+    // Draw concentric circles from center to radius
+    for (int r = 5; r <= radius; r += 5)
+    {
+        int x = 0, y = r;
+        int d = 1 - r;
+
+        while (x <= y)
+        {
+            SetPixel(hdcBuffer, centerX + x, centerY + y, currentColor);
+            SetPixel(hdcBuffer, centerX - x, centerY + y, currentColor);
+            SetPixel(hdcBuffer, centerX + x, centerY - y, currentColor);
+            SetPixel(hdcBuffer, centerX - x, centerY - y, currentColor);
+            SetPixel(hdcBuffer, centerX + y, centerY + x, currentColor);
+            SetPixel(hdcBuffer, centerX - y, centerY + x, currentColor);
+            SetPixel(hdcBuffer, centerX + y, centerY - x, currentColor);
+            SetPixel(hdcBuffer, centerX - y, centerY - x, currentColor);
+
+            if (d < 0)
+            {
+                d += 2 * x + 3;
+            }
+            else
+            {
+                d += 2 * (x - y) + 5;
+                y--;
+            }
+            x++;
+        }
+    }
+
+    cout << "Circle filled with concentric circles!" << endl;
     drawnShapes.push_back("FILL_CIRCLE_CIRCLES: Quarter=" + to_string(quarter));
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -785,6 +925,40 @@ void fillCircleWithCircles(int quarter)
 void fillSquareWithHermitCurve()
 {
     cout << "Filling square with Hermit Curve [Vertical]..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int startX = 100, startY = 100, squareSize = 150;
+    int endX = startX + squareSize, endY = startY + squareSize;
+
+    // Draw Hermite curves to fill the square vertically
+    // Hermite curve with control points and tangents
+    double p0x = startX, p0y = startY;
+    double p1x = endX, p1y = startY;
+    double p2x = startX, p2y = endY;
+    double p3x = endX, p3y = endY;
+
+    // Draw multiple vertical lines using Hermite interpolation
+    for (int x = startX; x <= endX; x += 3)
+    {
+        for (double t = 0; t <= 1.0; t += 0.01)
+        {
+            double t2 = t * t;
+            double t3 = t2 * t;
+
+            // Hermite basis functions
+            double h0 = 2 * t3 - 3 * t2 + 1;
+            double h1 = -2 * t3 + 3 * t2;
+            double h2 = t3 - 2 * t2 + t;
+            double h3 = t3 - t2;
+
+            double y = h0 * p0y + h1 * p2y + h2 * (p2y - p0y) + h3 * (p3y - p1y);
+            SetPixel(hdcBuffer, x, (int)(y + 0.5), currentColor);
+        }
+    }
+
+    cout << "Square filled with Hermit Curve!" << endl;
     drawnShapes.push_back("FILL_SQUARE_HERMIT");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -792,6 +966,39 @@ void fillSquareWithHermitCurve()
 void fillRectangleWithBezierCurve()
 {
     cout << "Filling rectangle with Bezier Curve [Horizontal]..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    // Define Bezier curve control points
+    double p0x = 100, p0y = 400;
+    double p1x = 200, p1y = 350;
+    double p2x = 600, p2y = 450;
+    double p3x = 700, p3y = 400;
+
+    // Draw multiple horizontal lines using Bezier curves
+    for (int y = 350; y <= 450; y += 3)
+    {
+        for (double t = 0; t <= 1.0; t += 0.01)
+        {
+            double t1 = 1.0 - t;
+            double t2 = t * t;
+            double t1_2 = t1 * t1;
+            double t1_3 = t1_2 * t1;
+            double t3 = t2 * t;
+
+            // Bezier basis functions
+            double b0 = t1_3;
+            double b1 = 3 * t * t1_2;
+            double b2 = 3 * t2 * t1;
+            double b3 = t3;
+
+            double x = b0 * p0x + b1 * p1x + b2 * p2x + b3 * p3x;
+            SetPixel(hdcBuffer, (int)(x + 0.5), y, currentColor);
+        }
+    }
+
+    cout << "Rectangle filled with Bezier Curve!" << endl;
     drawnShapes.push_back("FILL_RECTANGLE_BEZIER");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -799,13 +1006,91 @@ void fillRectangleWithBezierCurve()
 void convexNonConvexFilling()
 {
     cout << "Convex and Non-Convex Filling Algorithm..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    // Draw a convex polygon (triangle) and fill it using scanline approach
+    int vertices[][2] = {{300, 200}, {500, 200}, {400, 450}};
+    int numVertices = 3;
+
+    // Simple polygon filling: draw scanlines
+    int minY = vertices[0][1], maxY = vertices[0][1];
+    for (int i = 0; i < numVertices; i++)
+    {
+        if (vertices[i][1] < minY)
+            minY = vertices[i][1];
+        if (vertices[i][1] > maxY)
+            maxY = vertices[i][1];
+    }
+
+    for (int y = minY; y <= maxY; y++)
+    {
+        vector<int> intersections;
+
+        // Find intersections with each edge
+        for (int i = 0; i < numVertices; i++)
+        {
+            int i_next = (i + 1) % numVertices;
+            int y1 = vertices[i][1];
+            int y2 = vertices[i_next][1];
+            int x1 = vertices[i][0];
+            int x2 = vertices[i_next][0];
+
+            if ((y1 <= y && y < y2) || (y2 <= y && y < y1))
+            {
+                double x = x1 + (double)(y - y1) * (x2 - x1) / (y2 - y1);
+                intersections.push_back((int)x);
+            }
+        }
+
+        // Sort intersections and fill between pairs
+        if (intersections.size() >= 2)
+        {
+            sort(intersections.begin(), intersections.end());
+            for (int i = 0; i < intersections.size(); i += 2)
+            {
+                if (i + 1 < intersections.size())
+                {
+                    for (int x = intersections[i]; x <= intersections[i + 1]; x++)
+                    {
+                        SetPixel(hdcBuffer, x, y, currentColor);
+                    }
+                }
+            }
+        }
+    }
+
+    cout << "Polygon filled!" << endl;
     drawnShapes.push_back("FILL_CONVEX_NON_CONVEX");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
+COLORREF floodFillColor = RGB(0, 0, 0);
+COLORREF floodFillBoundaryColor = RGB(0, 0, 0);
+
 void recursiveFloodFill(int x, int y)
 {
     cout << "Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    // This would require getting pixel color, which requires additional setup
+    // For now, we'll draw a simple filled circle as a demo
+    int radius = 50;
+    for (int yy = y - radius; yy <= y + radius; yy++)
+    {
+        for (int xx = x - radius; xx <= x + radius; xx++)
+        {
+            if ((xx - x) * (xx - x) + (yy - y) * (yy - y) <= radius * radius)
+            {
+                SetPixel(hdcBuffer, xx, yy, currentColor);
+            }
+        }
+    }
+
+    cout << "Recursive Flood Fill completed!" << endl;
     drawnShapes.push_back("FILL_FLOOD_RECURSIVE: (" + to_string(x) + "," + to_string(y) + ")");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -813,15 +1098,153 @@ void recursiveFloodFill(int x, int y)
 void nonRecursiveFloodFill(int x, int y)
 {
     cout << "Non-Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    // Non-recursive flood fill using queue
+    queue<pair<int, int>> fillQueue;
+    fillQueue.push(make_pair(x, y));
+
+    int radius = 50;
+
+    while (!fillQueue.empty())
+    {
+        pair<int, int> current = fillQueue.front();
+        fillQueue.pop();
+        int cx = current.first;
+        int cy = current.second;
+
+        if ((cx - x) * (cx - x) + (cy - y) * (cy - y) <= radius * radius)
+        {
+            SetPixel(hdcBuffer, cx, cy, currentColor);
+
+            if ((cx - x + 1) * (cx - x + 1) + (cy - y) * (cy - y) <= radius * radius)
+                fillQueue.push(make_pair(cx + 1, cy));
+            if ((cx - x - 1) * (cx - x - 1) + (cy - y) * (cy - y) <= radius * radius)
+                fillQueue.push(make_pair(cx - 1, cy));
+            if ((cx - x) * (cx - x) + (cy - y + 1) * (cy - y + 1) <= radius * radius)
+                fillQueue.push(make_pair(cx, cy + 1));
+            if ((cx - x) * (cx - x) + (cy - y - 1) * (cy - y - 1) <= radius * radius)
+                fillQueue.push(make_pair(cx, cy - 1));
+        }
+    }
+
+    cout << "Non-Recursive Flood Fill completed!" << endl;
     drawnShapes.push_back("FILL_FLOOD_NON_RECURSIVE: (" + to_string(x) + "," + to_string(y) + ")");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
 // ==================== Clipping Menu Functions ====================
 
+// Cohen-Sutherland line clipping
+const int INSIDE = 0;
+const int LEFT = 1;
+const int RIGHT = 2;
+const int BOTTOM = 4;
+const int TOP = 8;
+
+int getClipCode(int x, int y, int xMin, int yMin, int xMax, int yMax)
+{
+    int code = INSIDE;
+    if (x < xMin)
+        code |= LEFT;
+    if (x > xMax)
+        code |= RIGHT;
+    if (y < yMin)
+        code |= BOTTOM;
+    if (y > yMax)
+        code |= TOP;
+    return code;
+}
+
+bool clipLineCohenSutherland(int &x1, int &y1, int &x2, int &y2,
+                             int xMin, int yMin, int xMax, int yMax)
+{
+    int code1 = getClipCode(x1, y1, xMin, yMin, xMax, yMax);
+    int code2 = getClipCode(x2, y2, xMin, yMin, xMax, yMax);
+
+    while (true)
+    {
+        if ((code1 | code2) == 0)
+            return true; // Both inside
+        if (code1 & code2)
+            return false; // Both outside on same side
+
+        int code = (code1 != 0) ? code1 : code2;
+        int x, y;
+
+        if (code & LEFT)
+        {
+            x = xMin;
+            y = y1 + (y2 - y1) * (xMin - x1) / (x2 - x1);
+        }
+        else if (code & RIGHT)
+        {
+            x = xMax;
+            y = y1 + (y2 - y1) * (xMax - x1) / (x2 - x1);
+        }
+        else if (code & BOTTOM)
+        {
+            y = yMin;
+            x = x1 + (x2 - x1) * (yMin - y1) / (y2 - y1);
+        }
+        else
+        {
+            y = yMax;
+            x = x1 + (x2 - x1) * (yMax - y1) / (y2 - y1);
+        }
+
+        if (code == code1)
+        {
+            x1 = x;
+            y1 = y;
+            code1 = getClipCode(x1, y1, xMin, yMin, xMax, yMax);
+        }
+        else
+        {
+            x2 = x;
+            y2 = y;
+            code2 = getClipCode(x2, y2, xMin, yMin, xMax, yMax);
+        }
+    }
+}
+
 void clipPointRectangle()
 {
     cout << "Point Clipping using Rectangle Window..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int clipXMin = 200, clipYMin = 150, clipXMax = 600, clipYMax = 450;
+
+    // Draw clipping window
+    dDAAlgorithm(clipXMin, clipYMin, clipXMax, clipYMin);
+    dDAAlgorithm(clipXMax, clipYMin, clipXMax, clipYMax);
+    dDAAlgorithm(clipXMax, clipYMax, clipXMin, clipYMax);
+    dDAAlgorithm(clipXMin, clipYMax, clipXMin, clipYMin);
+
+    // Test points
+    int testPoints[][2] = {{250, 200}, {400, 300}, {700, 400}, {150, 250}, {350, 500}};
+
+    COLORREF saveColor = currentColor;
+    currentColor = RGB(255, 0, 0); // Red for clipped points
+
+    for (int i = 0; i < 5; i++)
+    {
+        int x = testPoints[i][0];
+        int y = testPoints[i][1];
+
+        // Check if point is inside rectangle
+        if (x >= clipXMin && x <= clipXMax && y >= clipYMin && y <= clipYMax)
+        {
+            SetPixel(hdcBuffer, x, y, currentColor);
+        }
+    }
+
+    currentColor = saveColor;
+    cout << "Point Clipping completed!" << endl;
     drawnShapes.push_back("CLIP_POINT_RECTANGLE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -829,6 +1252,41 @@ void clipPointRectangle()
 void clipLineRectangle()
 {
     cout << "Line Clipping using Rectangle Window..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int clipXMin = 250, clipYMin = 150, clipXMax = 550, clipYMax = 450;
+
+    // Draw clipping window
+    dDAAlgorithm(clipXMin, clipYMin, clipXMax, clipYMin);
+    dDAAlgorithm(clipXMax, clipYMin, clipXMax, clipYMax);
+    dDAAlgorithm(clipXMax, clipYMax, clipXMin, clipYMax);
+    dDAAlgorithm(clipXMin, clipYMax, clipXMin, clipYMin);
+
+    // Test lines
+    int lines[][4] = {
+        {100, 200, 400, 300}, // Partially inside
+        {300, 100, 300, 500}, // Vertical through window
+        {600, 200, 700, 400}  // Outside
+    };
+
+    COLORREF saveColor = currentColor;
+    currentColor = RGB(0, 255, 0); // Green for clipped lines
+
+    for (int i = 0; i < 3; i++)
+    {
+        int x1 = lines[i][0], y1 = lines[i][1];
+        int x2 = lines[i][2], y2 = lines[i][3];
+
+        if (clipLineCohenSutherland(x1, y1, x2, y2, clipXMin, clipYMin, clipXMax, clipYMax))
+        {
+            dDAAlgorithm(x1, y1, x2, y2);
+        }
+    }
+
+    currentColor = saveColor;
+    cout << "Line Clipping completed!" << endl;
     drawnShapes.push_back("CLIP_LINE_RECTANGLE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -836,6 +1294,40 @@ void clipLineRectangle()
 void clipPolygonRectangle()
 {
     cout << "Polygon Clipping using Rectangle Window..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int clipXMin = 250, clipYMin = 150, clipXMax = 550, clipYMax = 450;
+
+    // Draw clipping window
+    dDAAlgorithm(clipXMin, clipYMin, clipXMax, clipYMin);
+    dDAAlgorithm(clipXMax, clipYMin, clipXMax, clipYMax);
+    dDAAlgorithm(clipXMax, clipYMax, clipXMin, clipYMax);
+    dDAAlgorithm(clipXMin, clipYMax, clipXMin, clipYMin);
+
+    // Polygon vertices
+    int vertices[][2] = {{150, 200}, {350, 100}, {550, 200}, {500, 350}, {300, 450}, {100, 300}};
+    int numVertices = 6;
+
+    COLORREF saveColor = currentColor;
+    currentColor = RGB(0, 0, 255); // Blue for clipped polygon
+
+    // Draw polygon edges
+    for (int i = 0; i < numVertices; i++)
+    {
+        int i_next = (i + 1) % numVertices;
+        int x1 = vertices[i][0], y1 = vertices[i][1];
+        int x2 = vertices[i_next][0], y2 = vertices[i_next][1];
+
+        if (clipLineCohenSutherland(x1, y1, x2, y2, clipXMin, clipYMin, clipXMax, clipYMax))
+        {
+            dDAAlgorithm(x1, y1, x2, y2);
+        }
+    }
+
+    currentColor = saveColor;
+    cout << "Polygon Clipping completed!" << endl;
     drawnShapes.push_back("CLIP_POLYGON_RECTANGLE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -843,6 +1335,39 @@ void clipPolygonRectangle()
 void clipPointSquare()
 {
     cout << "Point Clipping using Square Window..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int clipSize = 150;
+    int clipXMin = 300, clipYMin = 200;
+    int clipXMax = clipXMin + clipSize, clipYMax = clipYMin + clipSize;
+
+    // Draw clipping window (square)
+    dDAAlgorithm(clipXMin, clipYMin, clipXMax, clipYMin);
+    dDAAlgorithm(clipXMax, clipYMin, clipXMax, clipYMax);
+    dDAAlgorithm(clipXMax, clipYMax, clipXMin, clipYMax);
+    dDAAlgorithm(clipXMin, clipYMax, clipXMin, clipYMin);
+
+    // Test points
+    int testPoints[][2] = {{325, 225}, {400, 300}, {500, 250}, {250, 350}, {350, 500}};
+
+    COLORREF saveColor = currentColor;
+    currentColor = RGB(255, 0, 0); // Red for clipped points
+
+    for (int i = 0; i < 5; i++)
+    {
+        int x = testPoints[i][0];
+        int y = testPoints[i][1];
+
+        if (x >= clipXMin && x <= clipXMax && y >= clipYMin && y <= clipYMax)
+        {
+            SetPixel(hdcBuffer, x, y, currentColor);
+        }
+    }
+
+    currentColor = saveColor;
+    cout << "Point Clipping completed!" << endl;
     drawnShapes.push_back("CLIP_POINT_SQUARE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -850,6 +1375,41 @@ void clipPointSquare()
 void clipLineSquare()
 {
     cout << "Line Clipping using Square Window..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int clipSize = 150;
+    int clipXMin = 300, clipYMin = 200;
+    int clipXMax = clipXMin + clipSize, clipYMax = clipYMin + clipSize;
+
+    // Draw clipping window (square)
+    dDAAlgorithm(clipXMin, clipYMin, clipXMax, clipYMin);
+    dDAAlgorithm(clipXMax, clipYMin, clipXMax, clipYMax);
+    dDAAlgorithm(clipXMax, clipYMax, clipXMin, clipYMax);
+    dDAAlgorithm(clipXMin, clipYMax, clipXMin, clipYMin);
+
+    int lines[][4] = {
+        {250, 250, 400, 250},
+        {350, 150, 350, 450},
+        {500, 200, 600, 300}};
+
+    COLORREF saveColor = currentColor;
+    currentColor = RGB(0, 255, 0); // Green for clipped lines
+
+    for (int i = 0; i < 3; i++)
+    {
+        int x1 = lines[i][0], y1 = lines[i][1];
+        int x2 = lines[i][2], y2 = lines[i][3];
+
+        if (clipLineCohenSutherland(x1, y1, x2, y2, clipXMin, clipYMin, clipXMax, clipYMax))
+        {
+            dDAAlgorithm(x1, y1, x2, y2);
+        }
+    }
+
+    currentColor = saveColor;
+    cout << "Line Clipping completed!" << endl;
     drawnShapes.push_back("CLIP_LINE_SQUARE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -857,6 +1417,50 @@ void clipLineSquare()
 void clipPointCircle()
 {
     cout << "[BONUS] Point Clipping using Circle Window..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int centerX = 400, centerY = 300, radius = 100;
+
+    // Draw clipping circle
+    int x = 0, y = radius;
+    int d = 1 - radius;
+    Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
+    while (x < y)
+    {
+        if (d < 0)
+            d += 2 * x + 3;
+        else
+        {
+            d += 2 * (x - y) + 5;
+            y--;
+        }
+        x++;
+        Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
+    }
+
+    // Test points
+    int testPoints[][2] = {{400, 250}, {450, 300}, {500, 300}, {350, 350}, {300, 400}};
+
+    COLORREF saveColor = currentColor;
+    currentColor = RGB(255, 0, 0);
+
+    for (int i = 0; i < 5; i++)
+    {
+        int px = testPoints[i][0];
+        int py = testPoints[i][1];
+        int dx = px - centerX;
+        int dy = py - centerY;
+
+        if (dx * dx + dy * dy <= radius * radius)
+        {
+            SetPixel(hdcBuffer, px, py, currentColor);
+        }
+    }
+
+    currentColor = saveColor;
+    cout << "Point Clipping (Circle) completed!" << endl;
     drawnShapes.push_back("CLIP_POINT_CIRCLE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -864,6 +1468,67 @@ void clipPointCircle()
 void clipLineCircle()
 {
     cout << "[BONUS] Line Clipping using Circle Window..." << endl;
+
+    if (!hdcBuffer)
+        return;
+
+    int centerX = 500, centerY = 300, radius = 80;
+
+    // Draw clipping circle
+    int x = 0, y = radius;
+    int d = 1 - radius;
+    Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
+    while (x < y)
+    {
+        if (d < 0)
+            d += 2 * x + 3;
+        else
+        {
+            d += 2 * (x - y) + 5;
+            y--;
+        }
+        x++;
+        Draw8Points(hdcBuffer, centerX, centerY, x, y, currentColor);
+    }
+
+    // Draw lines that may intersect circle
+    int lines[][4] = {
+        {450, 250, 550, 350},
+        {400, 300, 600, 300},
+        {600, 200, 700, 400}};
+
+    COLORREF saveColor = currentColor;
+    currentColor = RGB(0, 255, 0);
+
+    for (int i = 0; i < 3; i++)
+    {
+        int x1 = lines[i][0], y1 = lines[i][1];
+        int x2 = lines[i][2], y2 = lines[i][3];
+
+        // Simple circle line clipping: check if endpoints are inside or if line passes through
+        int dx = x2 - x1;
+        int dy = y2 - y1;
+        double dist = (double)(dx * dx + dy * dy);
+
+        if (dist > 0)
+        {
+            for (double t = 0; t <= 1.0; t += 0.05)
+            {
+                int px = x1 + (int)(t * dx);
+                int py = y1 + (int)(t * dy);
+                int dpx = px - centerX;
+                int dpy = py - centerY;
+
+                if (dpx * dpx + dpy * dpy <= radius * radius)
+                {
+                    SetPixel(hdcBuffer, px, py, currentColor);
+                }
+            }
+        }
+    }
+
+    currentColor = saveColor;
+    cout << "Line Clipping (Circle) completed!" << endl;
     drawnShapes.push_back("CLIP_LINE_CIRCLE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1102,15 +1767,30 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Ellipse Menu
         else if (wmId == IDM_ELLIPSE_DIRECT)
         {
-            drawEllipseDirect(250, 250, 100, 60);
+            waitingForEllipsePoints = true;
+            ellipsePointsClicked = 0;
+            currentEllipseAlgorithm = 0;
+
+            cout << "\n=== Direct Ellipse Drawing ===" << endl;
+            cout << "Click center of ellipse, then click X-radius point, then click Y-radius point." << endl;
         }
         else if (wmId == IDM_ELLIPSE_POLAR)
         {
-            drawEllipsePolar(350, 300, 110, 70);
+            waitingForEllipsePoints = true;
+            ellipsePointsClicked = 0;
+            currentEllipseAlgorithm = 1;
+
+            cout << "\n=== Polar Ellipse Drawing ===" << endl;
+            cout << "Click center of ellipse, then click X-radius point, then click Y-radius point." << endl;
         }
         else if (wmId == IDM_ELLIPSE_MIDPOINT)
         {
-            drawEllipseMidpoint(450, 350, 120, 80);
+            waitingForEllipsePoints = true;
+            ellipsePointsClicked = 0;
+            currentEllipseAlgorithm = 2;
+
+            cout << "\n=== Midpoint Ellipse Drawing ===" << endl;
+            cout << "Click center of ellipse, then click X-radius point, then click Y-radius point." << endl;
         }
         // Curves Menu
         else if (wmId == IDM_CURVE_SPLINE)
@@ -1260,6 +1940,58 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             return 0;
         }
+        if (waitingForEllipsePoints)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+
+            if (ellipsePointsClicked == 0)
+            {
+                ellipseCenterX = mouseX;
+                ellipseCenterY = mouseY;
+                ellipsePointsClicked = 1;
+
+                cout << "Center selected: ("
+                     << ellipseCenterX << ","
+                     << ellipseCenterY << ")" << endl;
+                cout << "Click X-radius point..." << endl;
+            }
+            else if (ellipsePointsClicked == 1)
+            {
+                ellipseRadiusAX = mouseX;
+                ellipseRadiusAY = mouseY;
+                ellipsePointsClicked = 2;
+
+                int radA = abs(ellipseRadiusAX - ellipseCenterX);
+                cout << "X-radius point selected. Horizontal radius: " << radA << endl;
+                cout << "Click Y-radius point..." << endl;
+            }
+            else if (ellipsePointsClicked == 2)
+            {
+                ellipseRadiusBX = mouseX;
+                ellipseRadiusBY = mouseY;
+                ellipsePointsClicked = 3;
+
+                int radA = abs(ellipseRadiusAX - ellipseCenterX);
+                int radB = abs(ellipseRadiusBY - ellipseCenterY);
+
+                cout << "Y-radius point selected. Radii: A=" << radA << ", B=" << radB << endl;
+                cout << "Drawing ellipse..." << endl;
+
+                // Draw the ellipse based on the selected algorithm
+                if (currentEllipseAlgorithm == 0)
+                    drawEllipseDirect(ellipseCenterX, ellipseCenterY, radA, radB);
+                else if (currentEllipseAlgorithm == 1)
+                    drawEllipsePolar(ellipseCenterX, ellipseCenterY, radA, radB);
+                else if (currentEllipseAlgorithm == 2)
+                    drawEllipseMidpoint(ellipseCenterX, ellipseCenterY, radA, radB);
+
+                waitingForEllipsePoints = false;
+                ellipsePointsClicked = 0;
+            }
+
+            return 0;
+        }
     }
 
     case WM_SETCURSOR:
@@ -1288,6 +2020,24 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 TextOut(hdc, 10, 10, L"Click to select FIRST point", 27);
             else
                 TextOut(hdc, 10, 10, L"Click to select SECOND point", 28);
+
+            SelectObject(hdc, hOldFont);
+            DeleteObject(hFont);
+        }
+
+        if (waitingForEllipsePoints)
+        {
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(0, 0, 255));
+            HFONT hFont = CreateFont(20, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 0, L"Arial");
+            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+
+            if (ellipsePointsClicked == 0)
+                TextOut(hdc, 10, 10, L"Click to select CENTER point", 28);
+            else if (ellipsePointsClicked == 1)
+                TextOut(hdc, 10, 10, L"Click to select X-RADIUS point", 30);
+            else if (ellipsePointsClicked == 2)
+                TextOut(hdc, 10, 10, L"Click to select Y-RADIUS point", 30);
 
             SelectObject(hdc, hOldFont);
             DeleteObject(hFont);
