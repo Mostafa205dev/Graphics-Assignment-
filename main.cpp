@@ -901,11 +901,42 @@ void fillCircleWithLinesQuarter(int xc, int yc, int r, int quarter)
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-void fillCircleWithCircles(int quarter)
+void fillCircleWithCircles(int xc, int yc, int r)
 {
-    cout << "Filling circle with other circles (Quarter: " << quarter << ")" << endl;
-    drawnShapes.push_back("FILL_CIRCLE_CIRCLES: Quarter=" + to_string(quarter));
+    // cout << "Filling circle with other circles (Quarter: " << quarter << ")" << endl;
+    // if (!hdcBuffer)
+    //     return;
+
+    // double startAngle = 0, endAngle = 0;
+
+    // switch (quarter)
+    // {
+    // case 1:
+    //     startAngle = 0;
+    //     endAngle = 90;
+    //     break;
+    // case 2:
+    //     startAngle = 90;
+    //     endAngle = 180;
+    //     break;
+    // case 3:
+    //     startAngle = 180;
+    //     endAngle = 270;
+    //     break;
+    // case 4:
+    //     startAngle = 270;
+    //     endAngle = 360;
+    //     break;
+    // }
+    int rr = r;
+    while (rr > 0)
+    {
+        drawCircleMidpoint(xc, yc, rr);
+        rr -= 5;
+    }
+    // drawnShapes.push_back("FILL_CIRCLE_CIRCLES: Quarter=" + to_string(quarter));
     InvalidateRect(hMainWindow, NULL, FALSE);
+    return;
 }
 
 void fillSquareWithHermitCurve()
@@ -1436,7 +1467,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILL_CIRCLE_CIRCLES)
         {
-            fillCircleWithCircles(2);
+            int cx, cy, r;
+
+            if (getLastCircle(cx, cy, r))
+            {
+                cout << "Filling last drawn circle with smaller circles..." << endl;
+
+                fillCircleWithCircles(cx, cy, r);
+
+                InvalidateRect(hMainWindow, NULL, FALSE);
+            }
+            else
+            {
+                MessageBox(hMainWindow,
+                           _T("No circle found! Draw a circle first."),
+                           _T("Error"),
+                           MB_OK | MB_ICONERROR);
+            }
         }
         else if (wmId == IDM_FILL_SQUARE_HERMIT)
         {
