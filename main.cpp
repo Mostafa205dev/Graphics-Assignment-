@@ -1146,13 +1146,13 @@ void fillRectWithBezierCurve(Vector2 topLeft, int width, int height)
     double right = left + width;
     double bottom = top + height;
 
-    int step = 8;
+    int step = 10;
 
     for (double y = top; y <= bottom; y += step)
     {
         Vector2 P0 = {left, y};
-        Vector2 P1 = {left + width * 0.3, y};
-        Vector2 P2 = {left + width * 0.7, y};
+        Vector2 P1 = {left + width * 0.3, y - 20};
+        Vector2 P2 = {left + width * 0.7, y + 20};
         Vector2 P3 = {right, y};
 
         DrawBezierCurve(P0, P1, P2, P3, 50);
