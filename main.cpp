@@ -901,40 +901,56 @@ void fillCircleWithLinesQuarter(int xc, int yc, int r, int quarter)
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-void fillCircleWithCircles(int xc, int yc, int r)
+void drawCirclePolarQuarter(int xc, int yc, int r, int startAngle, int endAngle)
 {
-    // cout << "Filling circle with other circles (Quarter: " << quarter << ")" << endl;
-    // if (!hdcBuffer)
-    //     return;
+    if (!hdcBuffer)
+        return;
 
-    // double startAngle = 0, endAngle = 0;
+    double dtheta = 1.0 / r;
+    for (double theta = startAngle * 3.14159265 / 180.0; theta <= endAngle * 3.14159265 / 180.0; theta += dtheta)
+    {
+        int x = xc + (int)(r * cos(theta));
+        int y = yc + (int)(r * sin(theta));
 
-    // switch (quarter)
-    // {
-    // case 1:
-    //     startAngle = 0;
-    //     endAngle = 90;
-    //     break;
-    // case 2:
-    //     startAngle = 90;
-    //     endAngle = 180;
-    //     break;
-    // case 3:
-    //     startAngle = 180;
-    //     endAngle = 270;
-    //     break;
-    // case 4:
-    //     startAngle = 270;
-    //     endAngle = 360;
-    //     break;
-    // }
+        SetPixel(hdcBuffer, x, y, currentColor);
+    }
+}
+void fillCircleWithCircles(int xc, int yc, int r, int quarter)
+{
+    cout << "Filling circle with other circles (Quarter: " << quarter << ")" << endl;
+    if (!hdcBuffer)
+        return;
+
+    double startAngle = 0, endAngle = 0;
+
+    switch (quarter)
+    {
+    case 1:
+        startAngle = 0;
+        endAngle = 90;
+        break;
+    case 2:
+        startAngle = 90;
+        endAngle = 180;
+        break;
+    case 3:
+        startAngle = 180;
+        endAngle = 270;
+        break;
+    case 4:
+        startAngle = 270;
+        endAngle = 360;
+        break;
+    }
     int rr = r;
+
     while (rr > 0)
     {
-        drawCircleMidpoint(xc, yc, rr);
+        drawCirclePolarQuarter(xc, yc, rr, startAngle, endAngle);
         rr -= 5;
     }
-    // drawnShapes.push_back("FILL_CIRCLE_CIRCLES: Quarter=" + to_string(quarter));
+
+    drawnShapes.push_back("FILL_CIRCLE_CIRCLES: Quarter=" + to_string(quarter));
     InvalidateRect(hMainWindow, NULL, FALSE);
     return;
 }
@@ -1472,8 +1488,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (getLastCircle(cx, cy, r))
             {
                 cout << "Filling last drawn circle with smaller circles..." << endl;
-
-                fillCircleWithCircles(cx, cy, r);
+                int quarter = askQuarter();
+                if (quarter != -1)
+                    fillCircleWithCircles(cx, cy, r, quarter);
+                else
+                    cout << "Invalid quarter selection. Filling cancelled." << endl;
 
                 InvalidateRect(hMainWindow, NULL, FALSE);
             }
