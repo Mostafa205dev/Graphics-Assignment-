@@ -41,12 +41,6 @@ int circleCenterX, circleCenterY;
 int circlePointsClicked = 0;
 int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpoint, 4=Modified Midpoint
 
-// fill cricles with lines
-// bool waitingForFillCircleWithLines = false;
-
-// flood fill state variable
-bool waitingForFloodFill = false;
-int currentFloodFillAlgorithm; // 0=Recursive, 1=Non-Recursive
 // Ellipse drawing state variables
 bool waitingForEllipsePoints = false;
 int ellipseCenterX, ellipseCenterY;
@@ -61,15 +55,25 @@ int waitingForCurve = false;
 deque<Vector2> splinePoints;
 const float CARDINAL_TENSION = 0.5;
 
+// Filling
+
 // fill square with hermit curve
 bool waitingForFillSquareWithHermit = false;
-vector<pair<int, int>> fillSquarePoints;
-int fillSquarePointsClicked = 0;
-
-
 int squareStartX;
 int squareStartY;
 bool firstSquarePointSelected = false;
+// fill rectangle with bezier curve
+bool waitingForFillRectWithBezier = false;
+int rectStartX;
+int rectStartY;
+bool firstRectPointSelected = false;
+// fill with convex and non-convex polygons
+vector<POINT> polygonPoints;
+bool buildingConvex = false;
+bool buildingNonConvex = false;
+// flood fill state variable
+bool waitingForFloodFill = false;
+int currentFloodFillAlgorithm; // 0=Recursive, 1=Non-Recursive
 
 // Cursor state variable
 int currentCursorType = 0; // 0=Arrow, 1=Hand, 2=Wait, 3=Cross, 4=IBeam, 5=No, 6=SizeNS, 7=SizeWE
@@ -1045,6 +1049,7 @@ void drawCirclePolarQuarter(int xc, int yc, int r, int startAngle, int endAngle)
         SetPixel(hdcBuffer, x, y, currentColor);
     }
 }
+
 void fillCircleWithCircles(int xc, int yc, int r, int quarter)
 {
     cout << "Filling circle with other circles (Quarter: " << quarter << ")" << endl;
@@ -1085,23 +1090,18 @@ void fillCircleWithCircles(int xc, int yc, int r, int quarter)
     return;
 }
 
-void drawSquare(int x, int y, int sideLength)
+void draw4Sides(int x1, int y1, int x2, int y2)
 {
-    int x2 = x + sideLength;
-    int y2 = y + sideLength;
-
     // top
-    dDAAlgorithm(x, y, x2, y);
-
+    dDAAlgorithm(x1, y1, x2, y1);
     // right
-    dDAAlgorithm(x2, y, x2, y2);
-
+    dDAAlgorithm(x2, y1, x2, y2);
     // bottom
-    dDAAlgorithm(x2, y2, x, y2);
-
+    dDAAlgorithm(x2, y2, x1, y2);
     // left
-    dDAAlgorithm(x, y2, x, y);
+    dDAAlgorithm(x1, y2, x1, y1);
 }
+
 void fillSquareWithHermitCurve(Vector2 topLeft, int sideLength)
 {
     int left = topLeft.x;
@@ -1110,14 +1110,13 @@ void fillSquareWithHermitCurve(Vector2 topLeft, int sideLength)
     int right = left + sideLength;
     int bottom = top + sideLength;
 
-    int step = 8; 
+    int step = 8;
 
     for (int x = left; x <= right; x += step)
     {
         Vector2 P0 = {(double)x, (double)top};
         Vector2 P1 = {(double)x, (double)bottom};
 
-        // tangents (تقدر تقلل/تزود الانحناء)
         Vector2 T0 = {40, 0};
         Vector2 T1 = {-40, 0};
 
@@ -1128,10 +1127,38 @@ void fillSquareWithHermitCurve(Vector2 topLeft, int sideLength)
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-void fillRectangleWithBezierCurve()
+void DrawBezierCurve(Vector2 P0, Vector2 P1, Vector2 P2, Vector2 P3, int numpoints)
+{
+    Vector2 T0;
+    T0.x = 3 * (P1.x - P0.x);
+    T0.y = 3 * (P1.y - P0.y);
+    Vector2 T1;
+    T1.x = 3 * (P3.x - P2.x);
+    T1.y = 3 * (P3.y - P2.y);
+    DrawHermiteCurve(P0, T0, P3, T1, numpoints);
+}
+void fillRectWithBezierCurve(Vector2 topLeft, int width, int height)
 {
     cout << "Filling rectangle with Bezier Curve [Horizontal]..." << endl;
-    drawnShapes.push_back("FILL_RECTANGLE_BEZIER");
+
+    double left = topLeft.x;
+    double top = topLeft.y;
+    double right = left + width;
+    double bottom = top + height;
+
+    int step = 8;
+
+    for (double y = top; y <= bottom; y += step)
+    {
+        Vector2 P0 = {left, y};
+        Vector2 P1 = {left + width * 0.3, y};
+        Vector2 P2 = {left + width * 0.7, y};
+        Vector2 P3 = {right, y};
+
+        DrawBezierCurve(P0, P1, P2, P3, 50);
+    }
+
+    drawnShapes.push_back("FILL_RECT_BEZIER_HORIZONTAL");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
@@ -1142,9 +1169,6 @@ struct Entry
     int xmin, xmax;
 };
 
-vector<POINT> polygonPoints;
-bool buildingConvex = false;
-bool buildingNonConvex = false;
 void InitEntries(Entry table[])
 {
     for (int i = 0; i < MAXENTRIES; i++)
@@ -1895,7 +1919,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILL_RECT_BEZIER)
         {
-            fillRectangleWithBezierCurve();
+            waitingForFillRectWithBezier = true;
+            cout << "Filling rectangle with Bezier curve..." << endl;
+            MessageBox(hwnd,
+                       _T("Click to add 2 points for draw rectangle then atumatic fill with Bezier curve."),
+                       _T("Bezier Curve Fill"), MB_OK);
         }
         else if (wmId == IDM_FILL_CONVEX)
         {
@@ -2105,10 +2133,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                 int sideLength = min(dx, dy);
 
-                drawSquare(squareStartX, squareStartY, sideLength);
+                draw4Sides(squareStartX, squareStartY, squareStartX + sideLength, squareStartY + sideLength);
 
                 fillSquareWithHermitCurve(
-                    { (double)squareStartX, (double)squareStartY },
+                    {(double)squareStartX, (double)squareStartY},
                     sideLength);
 
                 waitingForFillSquareWithHermit = false;
@@ -2118,6 +2146,44 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
 
             return 0;
+        }
+        if (waitingForFillRectWithBezier)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+
+            if (!firstRectPointSelected)
+            {
+                rectStartX = mouseX;
+                rectStartY = mouseY;
+
+                firstRectPointSelected = true;
+
+                MessageBox(
+                    hwnd,
+                    _T("Click second point to determine rectangle size"),
+                    _T("Rectangle Size"),
+                    MB_OK);
+            }
+            else
+            {
+                int dx = abs(mouseX - rectStartX);
+                int dy = abs(mouseY - rectStartY);
+
+                int width = dx;
+                int height = dy;
+
+                draw4Sides(rectStartX, rectStartY, rectStartX + width, rectStartY + height);
+
+                fillRectWithBezierCurve(
+                    {(double)rectStartX, (double)rectStartY},
+                    width, height);
+
+                waitingForFillRectWithBezier = false;
+                firstRectPointSelected = false;
+
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
         }
         if (buildingConvex || buildingNonConvex)
         {
