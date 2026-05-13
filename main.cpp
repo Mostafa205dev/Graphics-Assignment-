@@ -55,11 +55,21 @@ int ellipseRadiusBX, ellipseRadiusBY;
 int ellipsePointsClicked = 0;
 int currentEllipseAlgorithm = 0; // 0=Direct, 1=Polar, 2=Midpoint
 
-//Curves
+// Curves
 struct Vector2;
 int waitingForCurve = false;
 deque<Vector2> splinePoints;
 const float CARDINAL_TENSION = 0.5;
+
+// fill square with hermit curve
+bool waitingForFillSquareWithHermit = false;
+vector<pair<int, int>> fillSquarePoints;
+int fillSquarePointsClicked = 0;
+
+
+int squareStartX;
+int squareStartY;
+bool firstSquarePointSelected = false;
 
 // Cursor state variable
 int currentCursorType = 0; // 0=Arrow, 1=Hand, 2=Wait, 3=Cross, 4=IBeam, 5=No, 6=SizeNS, 7=SizeWE
@@ -839,113 +849,121 @@ void drawEllipseMidpoint(int centerX, int centerY, int radA, int radB)
 
 struct Vector2
 {
-	double x,y;
+    double x, y;
 
-	Vector2(double a=0,double b=0)
-	{
-		x=a; y=b;
-	}
+    Vector2(double a = 0, double b = 0)
+    {
+        x = a;
+        y = b;
+    }
 
-	Vector2 operator-(Vector2& v){
-		return Vector2(x - v.x, y - v.y);
-	}
-	
-	Vector2 operator*(float val){
-		return Vector2(x * val, y * val);
-	}
+    Vector2 operator-(Vector2 &v)
+    {
+        return Vector2(x - v.x, y - v.y);
+    }
+
+    Vector2 operator*(float val)
+    {
+        return Vector2(x * val, y * val);
+    }
 };
 class Vector4
 {
-	double v[4];
+    double v[4];
+
 public:
-	Vector4(double a=0,double b=0,double c=0,double d=0)
-	{
-		v[0]=a; v[1]=b; v[2]=c; v[3]=d;
-	}
-	Vector4(double a[])
-	{
-		memcpy(v,a,4*sizeof(double));
-	}
-	double& operator[](int i)
-	{
-		return v[i];
-	}
+    Vector4(double a = 0, double b = 0, double c = 0, double d = 0)
+    {
+        v[0] = a;
+        v[1] = b;
+        v[2] = c;
+        v[3] = d;
+    }
+    Vector4(double a[])
+    {
+        memcpy(v, a, 4 * sizeof(double));
+    }
+    double &operator[](int i)
+    {
+        return v[i];
+    }
 };
 class Matrix4
 {
-	Vector4 M[4];
+    Vector4 M[4];
+
 public:
-	Matrix4(double A[])
-	{
-		memcpy(M,A,16*sizeof(double));
-	}
-	Vector4& operator[](int i)
-	{
-		return M[i];
-	}
+    Matrix4(double A[])
+    {
+        memcpy(M, A, 16 * sizeof(double));
+    }
+    Vector4 &operator[](int i)
+    {
+        return M[i];
+    }
 };
 
-Vector4 operator*(Matrix4 M,Vector4& b) // right multiplication of M by b
+Vector4 operator*(Matrix4 M, Vector4 &b) // right multiplication of M by b
 {
-	Vector4 res;
-	
-	for(int i=0;i<4;i++)
-	for(int j=0;j<4;j++)
-		res[i]+=M[i][j]*b[j];
+    Vector4 res;
 
-	return res;
+    for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 4; j++)
+            res[i] += M[i][j] * b[j];
+
+    return res;
 }
 
-double DotProduct(Vector4& a,Vector4& b) //multiplying a raw vector by a column vector
+double DotProduct(Vector4 &a, Vector4 &b) // multiplying a raw vector by a column vector
 {
-	return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
 }
 
-Vector4 GetHermiteCoeff(double x0,double s0,double x1,double s1)
+Vector4 GetHermiteCoeff(double x0, double s0, double x1, double s1)
 {
-	static double H[16]={2,1,-2,1,-3,-2,3,-1,0,1,0,0,1,0,0,0};
-	static Matrix4 basis(H);
-	Vector4 v(x0,s0,x1,s1);
-	return basis*v;
+    static double H[16] = {2, 1, -2, 1, -3, -2, 3, -1, 0, 1, 0, 0, 1, 0, 0, 0};
+    static Matrix4 basis(H);
+    Vector4 v(x0, s0, x1, s1);
+    return basis * v;
 }
 
-void DrawHermiteCurve (Vector2 P0,Vector2 T0,Vector2 P1,Vector2 T1 ,int
-numpoints)
+void DrawHermiteCurve(Vector2 P0, Vector2 T0, Vector2 P1, Vector2 T1, int numpoints)
 {
-	Vector4 xcoeff=GetHermiteCoeff(P0.x,T0.x,P1.x,T1.x);
-	Vector4 ycoeff=GetHermiteCoeff(P0.y,T0.y,P1.y,T1.y);
-	if(numpoints<2)return;
-	
-
+    Vector4 xcoeff = GetHermiteCoeff(P0.x, T0.x, P1.x, T1.x);
+    Vector4 ycoeff = GetHermiteCoeff(P0.y, T0.y, P1.y, T1.y);
+    if (numpoints < 2)
+        return;
 
     HPEN hPen = CreatePen(PS_SOLID, 1, currentColor);
     HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
 
+    double dt = 1.0 / (numpoints - 1);
 
-	double dt=1.0/(numpoints-1);
-	
-	for(double t=0;t<=1;t+=dt)
-	{
-		Vector4 vt;
-		vt[3]=1;
-		for(int i=2;i>=0;i--)vt[i]=vt[i+1]*t;
-		int x=round(DotProduct(xcoeff,vt));
-		int y=round(DotProduct(ycoeff,vt));
-		if(t==0)MoveToEx(hdcBuffer,x,y,NULL);
-		else LineTo(hdcBuffer,x,y);
-	}
+    for (double t = 0; t <= 1; t += dt)
+    {
+        Vector4 vt;
+        vt[3] = 1;
+        for (int i = 2; i >= 0; i--)
+            vt[i] = vt[i + 1] * t;
+        int x = round(DotProduct(xcoeff, vt));
+        int y = round(DotProduct(ycoeff, vt));
+        if (t == 0)
+            MoveToEx(hdcBuffer, x, y, NULL);
+        else
+            LineTo(hdcBuffer, x, y);
+    }
 
-	SelectObject(hdcBuffer, hOldPen);
+    SelectObject(hdcBuffer, hOldPen);
     DeleteObject(hPen);
 }
 
-void drawCardinalSplineCurve(Vector2 P0,Vector2 T0,Vector2 P1,Vector2 T1)
+void drawCardinalSplineCurve(Vector2 P0, Vector2 T0, Vector2 P1, Vector2 T1)
 {
     cout << "Drawing Cardinal Spline Curve..." << endl;
 
-	DrawHermiteCurve(P0,T0,P1,T1,100);
+    DrawHermiteCurve(P0, T0, P1, T1, 100);
     // TODO: Implement Cardinal Spline Curve algorithm
-    cout << "Cardinal Spline Curve drawn!" << endl; 
+    cout << "Cardinal Spline Curve drawn!" << endl;
     drawnShapes.push_back("CURVE_CARDINAL_SPLINE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1067,9 +1085,45 @@ void fillCircleWithCircles(int xc, int yc, int r, int quarter)
     return;
 }
 
-void fillSquareWithHermitCurve()
+void drawSquare(int x, int y, int sideLength)
 {
-    cout << "Filling square with Hermit Curve [Vertical]..." << endl;
+    int x2 = x + sideLength;
+    int y2 = y + sideLength;
+
+    // top
+    dDAAlgorithm(x, y, x2, y);
+
+    // right
+    dDAAlgorithm(x2, y, x2, y2);
+
+    // bottom
+    dDAAlgorithm(x2, y2, x, y2);
+
+    // left
+    dDAAlgorithm(x, y2, x, y);
+}
+void fillSquareWithHermitCurve(Vector2 topLeft, int sideLength)
+{
+    int left = topLeft.x;
+    int top = topLeft.y;
+
+    int right = left + sideLength;
+    int bottom = top + sideLength;
+
+    int step = 8; 
+
+    for (int x = left; x <= right; x += step)
+    {
+        Vector2 P0 = {(double)x, (double)top};
+        Vector2 P1 = {(double)x, (double)bottom};
+
+        // tangents (تقدر تقلل/تزود الانحناء)
+        Vector2 T0 = {40, 0};
+        Vector2 T1 = {-40, 0};
+
+        DrawHermiteCurve(P0, T0, P1, T1, 50);
+    }
+
     drawnShapes.push_back("FILL_SQUARE_HERMIT");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -1782,7 +1836,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Curves Menu
         else if (wmId == IDM_CURVE_SPLINE)
         {
-			waitingForCurve = true;
+            waitingForCurve = true;
             // drawCardinalSplineCurve();
         }
         // Filling Menu
@@ -1833,7 +1887,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILL_SQUARE_HERMIT)
         {
-            fillSquareWithHermitCurve();
+            waitingForFillSquareWithHermit = true;
+            cout << "Filling square with Hermit curve..." << endl;
+            MessageBox(hwnd,
+                       _T("Click to add 2 points for draw square then atumatic fill with Hermit curve."),
+                       _T("Hermit Curve Fill"), MB_OK);
         }
         else if (wmId == IDM_FILL_RECT_BEZIER)
         {
@@ -1841,7 +1899,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILL_CONVEX)
         {
-
             polygonPoints.clear();
             buildingConvex = true;
             MessageBox(hwnd,
@@ -1933,20 +1990,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             InvalidateRect(hwnd, NULL, FALSE);
         }
-        if(waitingForCurve){
-			waitingForCurve = false;
+        if (waitingForCurve)
+        {
+            waitingForCurve = false;
 
-			Vector2 t0;
-			Vector2 t1;
-			
-			int n = splinePoints.size();
-			t0 = (splinePoints[n - 1] - splinePoints[n - 3]) * (1 - CARDINAL_TENSION);
-			t1 = (splinePoints[n - 1] - splinePoints[n - 2]) * (1 - CARDINAL_TENSION);
+            Vector2 t0;
+            Vector2 t1;
 
-			drawCardinalSplineCurve(splinePoints[n - 2],t0,splinePoints[n - 1], t1);
-			splinePoints.clear();
-		}
-		break;
+            int n = splinePoints.size();
+            t0 = (splinePoints[n - 1] - splinePoints[n - 3]) * (1 - CARDINAL_TENSION);
+            t1 = (splinePoints[n - 1] - splinePoints[n - 2]) * (1 - CARDINAL_TENSION);
+
+            drawCardinalSplineCurve(splinePoints[n - 2], t0, splinePoints[n - 1], t1);
+            splinePoints.clear();
+        }
+        break;
     }
 
     case WM_LBUTTONDOWN:
@@ -2018,6 +2076,45 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                 waitingForCirclePoints = false;
                 circlePointsClicked = 0;
+            }
+
+            return 0;
+        }
+        if (waitingForFillSquareWithHermit)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+
+            if (!firstSquarePointSelected)
+            {
+                squareStartX = mouseX;
+                squareStartY = mouseY;
+
+                firstSquarePointSelected = true;
+
+                MessageBox(
+                    hwnd,
+                    _T("Click second point to determine square size"),
+                    _T("Square Size"),
+                    MB_OK);
+            }
+            else
+            {
+                int dx = abs(mouseX - squareStartX);
+                int dy = abs(mouseY - squareStartY);
+
+                int sideLength = min(dx, dy);
+
+                drawSquare(squareStartX, squareStartY, sideLength);
+
+                fillSquareWithHermitCurve(
+                    { (double)squareStartX, (double)squareStartY },
+                    sideLength);
+
+                waitingForFillSquareWithHermit = false;
+                firstSquarePointSelected = false;
+
+                InvalidateRect(hwnd, NULL, FALSE);
             }
 
             return 0;
@@ -2109,34 +2206,37 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
             return 0;
         }
-        if (waitingForCurve){
-			
+        if (waitingForCurve)
+        {
+
             int mouseX = GET_X_LPARAM(lParam);
             int mouseY = GET_Y_LPARAM(lParam);
-			Vector2 p;
-			p.x = mouseX;
-			p.y = mouseY;
+            Vector2 p;
+            p.x = mouseX;
+            p.y = mouseY;
 
-			splinePoints.push_back(p);
-			cout << p.x << " " << p.y << "\n";
-			int n = splinePoints.size();
-			
-			Vector2 t0;
-			Vector2 t1;
+            splinePoints.push_back(p);
+            cout << p.x << " " << p.y << "\n";
+            int n = splinePoints.size();
 
-			if(n == 3){
-				t0 = (splinePoints[1] - splinePoints[0]) * (1 - CARDINAL_TENSION);
-				t1 = (splinePoints[2] - splinePoints[0]) * (1 - CARDINAL_TENSION);
-				drawCardinalSplineCurve(splinePoints[0],t0,splinePoints[1],t1);
-			}
-			else if(n > 3){
-				t0 = (splinePoints[n - 2] - splinePoints[n - 4]) * (1 - CARDINAL_TENSION);
-				t1 = (splinePoints[n - 1] - splinePoints[n - 3]) * (1 - CARDINAL_TENSION);
-				drawCardinalSplineCurve(splinePoints[n - 3],t0,splinePoints[n - 2],t1);
-				cout << "DRAWN\n";
-			}
-		}
-		break;
+            Vector2 t0;
+            Vector2 t1;
+
+            if (n == 3)
+            {
+                t0 = (splinePoints[1] - splinePoints[0]) * (1 - CARDINAL_TENSION);
+                t1 = (splinePoints[2] - splinePoints[0]) * (1 - CARDINAL_TENSION);
+                drawCardinalSplineCurve(splinePoints[0], t0, splinePoints[1], t1);
+            }
+            else if (n > 3)
+            {
+                t0 = (splinePoints[n - 2] - splinePoints[n - 4]) * (1 - CARDINAL_TENSION);
+                t1 = (splinePoints[n - 1] - splinePoints[n - 3]) * (1 - CARDINAL_TENSION);
+                drawCardinalSplineCurve(splinePoints[n - 3], t0, splinePoints[n - 2], t1);
+                cout << "DRAWN\n";
+            }
+        }
+        break;
     }
 
     case WM_PAINT:
