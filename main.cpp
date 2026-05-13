@@ -4,9 +4,11 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <deque>
 #include <windows.h>
 #include <cmath>
 #include <string>
+#include <algorithm>
 #include <sstream>
 #include <tchar.h>
 #include <windowsx.h>
@@ -39,12 +41,6 @@ int circleCenterX, circleCenterY;
 int circlePointsClicked = 0;
 int currentCircleAlgorithm = 0; // 0=Direct, 1=Polar, 2=Iterative Polar, 3=Midpoint, 4=Modified Midpoint
 
-// fill cricles with lines
-// bool waitingForFillCircleWithLines = false;
-
-// flood fill state variable
-bool waitingForFloodFill = false;
-int currentFloodFillAlgorithm; // 0=Recursive, 1=Non-Recursive
 // Ellipse drawing state variables
 bool waitingForEllipsePoints = false;
 int ellipseCenterX, ellipseCenterY;
@@ -52,6 +48,32 @@ int ellipseRadiusAX, ellipseRadiusAY;
 int ellipseRadiusBX, ellipseRadiusBY;
 int ellipsePointsClicked = 0;
 int currentEllipseAlgorithm = 0; // 0=Direct, 1=Polar, 2=Midpoint
+
+// Curves
+struct Vector2;
+int waitingForCurve = false;
+deque<Vector2> splinePoints;
+const float CARDINAL_TENSION = 0.5;
+
+// Filling
+
+// fill square with hermit curve
+bool waitingForFillSquareWithHermit = false;
+int squareStartX;
+int squareStartY;
+bool firstSquarePointSelected = false;
+// fill rectangle with bezier curve
+bool waitingForFillRectWithBezier = false;
+int rectStartX;
+int rectStartY;
+bool firstRectPointSelected = false;
+// fill with convex and non-convex polygons
+vector<POINT> polygonPoints;
+bool buildingConvex = false;
+bool buildingNonConvex = false;
+// flood fill state variable
+bool waitingForFloodFill = false;
+int currentFloodFillAlgorithm; // 0=Recursive, 1=Non-Recursive
 
 // Cursor state variable
 int currentCursorType = 0; // 0=Arrow, 1=Hand, 2=Wait, 3=Cross, 4=IBeam, 5=No, 6=SizeNS, 7=SizeWE
@@ -88,8 +110,9 @@ LPCTSTR cursorTypeNames[] = {_T("Arrow"), _T("Hand"), _T("Wait (Hourglass)"), _T
 #define IDM_FILL_SQUARE_HERMIT 7003
 #define IDM_FILL_RECT_BEZIER 7004
 #define IDM_FILL_CONVEX 7005
-#define IDM_FILL_FLOOD_REC 7006
-#define IDM_FILL_FLOOD_NONREC 7007
+#define IDM_FILL_NONCONVEX 7006
+#define IDM_FILL_FLOOD_REC 7007
+#define IDM_FILL_FLOOD_NONREC 7008
 
 #define IDM_CLIP_POINT_RECT 8001
 #define IDM_CLIP_LINE_RECT 8002
@@ -828,10 +851,121 @@ void drawEllipseMidpoint(int centerX, int centerY, int radA, int radB)
 
 // ==================== Curves Menu Functions ====================
 
-void drawCardinalSplineCurve()
+struct Vector2
+{
+    double x, y;
+
+    Vector2(double a = 0, double b = 0)
+    {
+        x = a;
+        y = b;
+    }
+
+    Vector2 operator-(Vector2 &v)
+    {
+        return Vector2(x - v.x, y - v.y);
+    }
+
+    Vector2 operator*(float val)
+    {
+        return Vector2(x * val, y * val);
+    }
+};
+class Vector4
+{
+    double v[4];
+
+public:
+    Vector4(double a = 0, double b = 0, double c = 0, double d = 0)
+    {
+        v[0] = a;
+        v[1] = b;
+        v[2] = c;
+        v[3] = d;
+    }
+    Vector4(double a[])
+    {
+        memcpy(v, a, 4 * sizeof(double));
+    }
+    double &operator[](int i)
+    {
+        return v[i];
+    }
+};
+class Matrix4
+{
+    Vector4 M[4];
+
+public:
+    Matrix4(double A[])
+    {
+        memcpy(M, A, 16 * sizeof(double));
+    }
+    Vector4 &operator[](int i)
+    {
+        return M[i];
+    }
+};
+
+Vector4 operator*(Matrix4 M, Vector4 &b) // right multiplication of M by b
+{
+    Vector4 res;
+
+    for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 4; j++)
+            res[i] += M[i][j] * b[j];
+
+    return res;
+}
+
+double DotProduct(Vector4 &a, Vector4 &b) // multiplying a raw vector by a column vector
+{
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+}
+
+Vector4 GetHermiteCoeff(double x0, double s0, double x1, double s1)
+{
+    static double H[16] = {2, 1, -2, 1, -3, -2, 3, -1, 0, 1, 0, 0, 1, 0, 0, 0};
+    static Matrix4 basis(H);
+    Vector4 v(x0, s0, x1, s1);
+    return basis * v;
+}
+
+void DrawHermiteCurve(Vector2 P0, Vector2 T0, Vector2 P1, Vector2 T1, int numpoints)
+{
+    Vector4 xcoeff = GetHermiteCoeff(P0.x, T0.x, P1.x, T1.x);
+    Vector4 ycoeff = GetHermiteCoeff(P0.y, T0.y, P1.y, T1.y);
+    if (numpoints < 2)
+        return;
+
+    HPEN hPen = CreatePen(PS_SOLID, 1, currentColor);
+    HPEN hOldPen = (HPEN)SelectObject(hdcBuffer, hPen);
+
+    double dt = 1.0 / (numpoints - 1);
+
+    for (double t = 0; t <= 1; t += dt)
+    {
+        Vector4 vt;
+        vt[3] = 1;
+        for (int i = 2; i >= 0; i--)
+            vt[i] = vt[i + 1] * t;
+        int x = round(DotProduct(xcoeff, vt));
+        int y = round(DotProduct(ycoeff, vt));
+        if (t == 0)
+            MoveToEx(hdcBuffer, x, y, NULL);
+        else
+            LineTo(hdcBuffer, x, y);
+    }
+
+    SelectObject(hdcBuffer, hOldPen);
+    DeleteObject(hPen);
+}
+
+void drawCardinalSplineCurve(Vector2 P0, Vector2 T0, Vector2 P1, Vector2 T1)
 {
     cout << "Drawing Cardinal Spline Curve..." << endl;
 
+    DrawHermiteCurve(P0, T0, P1, T1, 100);
     // TODO: Implement Cardinal Spline Curve algorithm
     cout << "Cardinal Spline Curve drawn!" << endl;
     drawnShapes.push_back("CURVE_CARDINAL_SPLINE");
@@ -901,62 +1035,353 @@ void fillCircleWithLinesQuarter(int xc, int yc, int r, int quarter)
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-void fillCircleWithCircles(int xc, int yc, int r)
+void drawCirclePolarQuarter(int xc, int yc, int r, int startAngle, int endAngle)
 {
-    // cout << "Filling circle with other circles (Quarter: " << quarter << ")" << endl;
-    // if (!hdcBuffer)
-    //     return;
+    if (!hdcBuffer)
+        return;
 
-    // double startAngle = 0, endAngle = 0;
+    double dtheta = 1.0 / r;
+    for (double theta = startAngle * 3.14159265 / 180.0; theta <= endAngle * 3.14159265 / 180.0; theta += dtheta)
+    {
+        int x = xc + (int)(r * cos(theta));
+        int y = yc + (int)(r * sin(theta));
 
-    // switch (quarter)
-    // {
-    // case 1:
-    //     startAngle = 0;
-    //     endAngle = 90;
-    //     break;
-    // case 2:
-    //     startAngle = 90;
-    //     endAngle = 180;
-    //     break;
-    // case 3:
-    //     startAngle = 180;
-    //     endAngle = 270;
-    //     break;
-    // case 4:
-    //     startAngle = 270;
-    //     endAngle = 360;
-    //     break;
-    // }
+        SetPixel(hdcBuffer, x, y, currentColor);
+    }
+}
+
+void fillCircleWithCircles(int xc, int yc, int r, int quarter)
+{
+    cout << "Filling circle with other circles (Quarter: " << quarter << ")" << endl;
+    if (!hdcBuffer)
+        return;
+
+    double startAngle = 0, endAngle = 0;
+
+    switch (quarter)
+    {
+    case 1:
+        startAngle = 0;
+        endAngle = 90;
+        break;
+    case 2:
+        startAngle = 90;
+        endAngle = 180;
+        break;
+    case 3:
+        startAngle = 180;
+        endAngle = 270;
+        break;
+    case 4:
+        startAngle = 270;
+        endAngle = 360;
+        break;
+    }
     int rr = r;
+
     while (rr > 0)
     {
-        drawCircleMidpoint(xc, yc, rr);
+        drawCirclePolarQuarter(xc, yc, rr, startAngle, endAngle);
         rr -= 5;
     }
-    // drawnShapes.push_back("FILL_CIRCLE_CIRCLES: Quarter=" + to_string(quarter));
+
+    drawnShapes.push_back("FILL_CIRCLE_CIRCLES: Quarter=" + to_string(quarter));
     InvalidateRect(hMainWindow, NULL, FALSE);
     return;
 }
 
-void fillSquareWithHermitCurve()
+void draw4Sides(int x1, int y1, int x2, int y2)
 {
-    cout << "Filling square with Hermit Curve [Vertical]..." << endl;
+    // top
+    dDAAlgorithm(x1, y1, x2, y1);
+    // right
+    dDAAlgorithm(x2, y1, x2, y2);
+    // bottom
+    dDAAlgorithm(x2, y2, x1, y2);
+    // left
+    dDAAlgorithm(x1, y2, x1, y1);
+}
+
+void fillSquareWithHermitCurve(Vector2 topLeft, int sideLength)
+{
+    int left = topLeft.x;
+    int top = topLeft.y;
+
+    int right = left + sideLength;
+    int bottom = top + sideLength;
+
+    int step = 8;
+
+    for (int x = left; x <= right; x += step)
+    {
+        Vector2 P0 = {(double)x, (double)top};
+        Vector2 P1 = {(double)x, (double)bottom};
+
+        Vector2 T0 = {40, 0};
+        Vector2 T1 = {-40, 0};
+
+        DrawHermiteCurve(P0, T0, P1, T1, 50);
+    }
+
     drawnShapes.push_back("FILL_SQUARE_HERMIT");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-void fillRectangleWithBezierCurve()
+void DrawBezierCurve(Vector2 P0, Vector2 P1, Vector2 P2, Vector2 P3, int numpoints)
+{
+    Vector2 T0;
+    T0.x = 3 * (P1.x - P0.x);
+    T0.y = 3 * (P1.y - P0.y);
+    Vector2 T1;
+    T1.x = 3 * (P3.x - P2.x);
+    T1.y = 3 * (P3.y - P2.y);
+    DrawHermiteCurve(P0, T0, P3, T1, numpoints);
+}
+void fillRectWithBezierCurve(Vector2 topLeft, int width, int height)
 {
     cout << "Filling rectangle with Bezier Curve [Horizontal]..." << endl;
-    drawnShapes.push_back("FILL_RECTANGLE_BEZIER");
+
+    double left = topLeft.x;
+    double top = topLeft.y;
+    double right = left + width;
+    double bottom = top + height;
+
+    int step = 10;
+
+    for (double y = top; y <= bottom; y += step)
+    {
+        Vector2 P0 = {left, y};
+        Vector2 P1 = {left + width * 0.3, y - 20};
+        Vector2 P2 = {left + width * 0.7, y + 20};
+        Vector2 P3 = {right, y};
+
+        DrawBezierCurve(P0, P1, P2, P3, 50);
+    }
+
+    drawnShapes.push_back("FILL_RECT_BEZIER_HORIZONTAL");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-void convexNonConvexFilling()
+#define MAXENTRIES 768
+
+struct Entry
 {
-    cout << "Convex and Non-Convex Filling Algorithm..." << endl;
-    drawnShapes.push_back("FILL_CONVEX_NON_CONVEX");
+    int xmin, xmax;
+};
+
+void InitEntries(Entry table[])
+{
+    for (int i = 0; i < MAXENTRIES; i++)
+    {
+        table[i].xmin = INT_MAX;
+        table[i].xmax = INT_MIN;
+    }
+}
+
+void ScanEdge(POINT v1, POINT v2, Entry table[])
+{
+    if (v1.y == v2.y)
+        return; // ignore horizontal edges
+
+    if (v1.y > v2.y)
+        swap(v1, v2);
+
+    double minv = (double)(v2.x - v1.x) / (v2.y - v1.y);
+    double x = v1.x;
+    int y = v1.y;
+
+    while (y < v2.y) // from top v1.y to bottom v2.y
+    {
+        if (y >= 0 && y < MAXENTRIES)
+        {
+            if (x < table[y].xmin) // if find x < min x , update xmin
+                table[y].xmin = (int)ceil(x);
+            if (x > table[y].xmax) // if find x > max x , update xmax
+                table[y].xmax = (int)floor(x);
+        }
+        y++;       // one move down
+        x += minv; // move one x down by slope
+    }
+}
+
+void DrawScanLines(Entry table[], COLORREF color)
+{
+    for (int y = 0; y < MAXENTRIES; y++)
+    {
+        if (table[y].xmin <= table[y].xmax &&
+            table[y].xmin != INT_MAX &&
+            table[y].xmax != INT_MIN)
+        {
+            for (int x = table[y].xmin; x <= table[y].xmax; x++)
+            {
+                SetPixel(hdcBuffer, x, y, color);
+            }
+        }
+    }
+}
+int cross(POINT A, POINT B, POINT C)
+{
+    int dx1 = B.x - A.x;
+    int dy1 = B.y - A.y;
+
+    int dx2 = C.x - B.x;
+    int dy2 = C.y - B.y;
+
+    return dx1 * dy2 - dy1 * dx2;
+}
+bool isConvex(const vector<POINT> &p)
+{
+    int n = p.size();
+    if (n < 3)
+        return false;
+
+    int sign = 0;
+
+    for (int i = 0; i < n; i++)
+    {
+        POINT A = p[i];
+        POINT B = p[(i + 1) % n];
+        POINT C = p[(i + 2) % n];
+
+        int z = cross(A, B, C);
+
+        if (z != 0)
+        {
+            if (sign == 0)
+                sign = (z > 0) ? 1 : -1;
+            else if ((z > 0 ? 1 : -1) != sign)
+                return false;
+        }
+    }
+    return true;
+}
+void ConvexFilling()
+{
+    if (!isConvex(polygonPoints))
+    {
+        MessageBox(hMainWindow, _T("Polygon is not convex!"), _T("Error"), MB_OK);
+        return;
+    }
+    if (polygonPoints.size() < 3)
+        return;
+
+    int n = polygonPoints.size();
+
+    Entry *table = new Entry[MAXENTRIES];
+    InitEntries(table);
+
+    POINT v1;
+    v1.x = polygonPoints[n - 1].x; // last point
+    v1.y = polygonPoints[n - 1].y;
+
+    for (int i = 0; i < n; i++)
+    {
+        POINT v2;
+        v2.x = polygonPoints[i].x; // current point
+        v2.y = polygonPoints[i].y;
+
+        ScanEdge(v1, v2, table); // extract table y and its x1(xmin) and x2(xmax)
+        v1 = v2;
+    }
+
+    DrawScanLines(table, currentColor); // draw horizontal lines between x1 and x2 for each y
+
+    delete[] table;
+
+    drawnShapes.push_back("FILL_CONVEX_SCANLINE");
+    InvalidateRect(hMainWindow, NULL, FALSE);
+}
+struct EdgeEntry
+{
+    vector<int> xIntersections;
+};
+
+void InitNonConvexTable(EdgeEntry table[])
+{
+    for (int i = 0; i < MAXENTRIES; i++)
+    {
+        table[i].xIntersections.clear();
+    }
+}
+void ScanEdgeNonConvex(POINT v1, POINT v2, EdgeEntry table[])
+{
+    if (v1.y == v2.y)
+        return;
+
+    if (v1.y > v2.y)
+        swap(v1, v2);
+
+    double minv = (double)(v2.x - v1.x) / (v2.y - v1.y);
+
+    double x = v1.x;
+    int y = v1.y;
+
+    while (y < v2.y)
+    {
+        if (y >= 0 && y < MAXENTRIES)
+        {
+            table[y].xIntersections.push_back((int)round(x));
+        }
+
+        y++;
+        x += minv;
+    }
+}
+void DrawNonConvexScanLines(EdgeEntry table[], COLORREF color)
+{
+    for (int y = 0; y < MAXENTRIES; y++)
+    {
+        vector<int> &xs = table[y].xIntersections;
+
+        if (xs.size() < 2)
+            continue;
+
+        sort(xs.begin(), xs.end());
+
+        for (int i = 0; i + 1 < xs.size(); i += 2)
+        {
+            int x1 = xs[i];
+            int x2 = xs[i + 1];
+
+            for (int x = x1; x <= x2; x++)
+            {
+                SetPixel(hdcBuffer, x, y, color);
+            }
+        }
+    }
+}
+void NonConvexFilling()
+{
+    if (polygonPoints.size() < 3)
+        return;
+
+    int n = polygonPoints.size();
+
+    EdgeEntry *table = new EdgeEntry[MAXENTRIES];
+
+    InitNonConvexTable(table);
+
+    POINT v1;
+    v1.x = polygonPoints[n - 1].x;
+    v1.y = polygonPoints[n - 1].y;
+
+    for (int i = 0; i < n; i++)
+    {
+        POINT v2;
+        v2.x = polygonPoints[i].x;
+        v2.y = polygonPoints[i].y;
+
+        ScanEdgeNonConvex(v1, v2, table);
+
+        v1 = v2;
+    }
+
+    DrawNonConvexScanLines(table, currentColor);
+
+    delete[] table;
+
+    drawnShapes.push_back("FILL_NONCONVEX_POLYGON_SCANLINE");
+
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
@@ -1001,11 +1426,6 @@ void recursiveFloodFill(int x, int y)
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-struct Point
-{
-    int x, y;
-};
-
 void nonRecursiveFloodFill(int x, int y)
 {
     cout << "Non-Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
@@ -1016,12 +1436,12 @@ void nonRecursiveFloodFill(int x, int y)
     if (oldColor == newColor)
         return;
 
-    stack<Point> S;
+    stack<POINT> S;
     S.push({x, y});
 
     while (!S.empty())
     {
-        Point p = S.top();
+        POINT p = S.top();
         S.pop();
 
         // boundary check
@@ -1440,7 +1860,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Curves Menu
         else if (wmId == IDM_CURVE_SPLINE)
         {
-            drawCardinalSplineCurve();
+            waitingForCurve = true;
+            // drawCardinalSplineCurve();
         }
         // Filling Menu
         else if (wmId == IDM_FILL_CIRCLE_LINES)
@@ -1472,8 +1893,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (getLastCircle(cx, cy, r))
             {
                 cout << "Filling last drawn circle with smaller circles..." << endl;
-
-                fillCircleWithCircles(cx, cy, r);
+                int quarter = askQuarter();
+                if (quarter != -1)
+                    fillCircleWithCircles(cx, cy, r, quarter);
+                else
+                    cout << "Invalid quarter selection. Filling cancelled." << endl;
 
                 InvalidateRect(hMainWindow, NULL, FALSE);
             }
@@ -1487,15 +1911,35 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILL_SQUARE_HERMIT)
         {
-            fillSquareWithHermitCurve();
+            waitingForFillSquareWithHermit = true;
+            cout << "Filling square with Hermit curve..." << endl;
+            MessageBox(hwnd,
+                       _T("Click to add 2 points for draw square then atumatic fill with Hermit curve."),
+                       _T("Hermit Curve Fill"), MB_OK);
         }
         else if (wmId == IDM_FILL_RECT_BEZIER)
         {
-            fillRectangleWithBezierCurve();
+            waitingForFillRectWithBezier = true;
+            cout << "Filling rectangle with Bezier curve..." << endl;
+            MessageBox(hwnd,
+                       _T("Click to add 2 points for draw rectangle then atumatic fill with Bezier curve."),
+                       _T("Bezier Curve Fill"), MB_OK);
         }
         else if (wmId == IDM_FILL_CONVEX)
         {
-            convexNonConvexFilling();
+            polygonPoints.clear();
+            buildingConvex = true;
+            MessageBox(hwnd,
+                       _T("Click to add polygon points.\nRight-click to finish."),
+                       _T("Convex Fill"), MB_OK);
+        }
+        else if (wmId == IDM_FILL_NONCONVEX)
+        {
+            polygonPoints.clear();
+            buildingNonConvex = true;
+            MessageBox(hwnd,
+                       _T("Click to add polygon points.\nRight-click to finish."),
+                       _T("Non-Convex Fill"), MB_OK);
         }
         else if (wmId == IDM_FILL_FLOOD_REC)
         {
@@ -1550,6 +1994,45 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             drawSadFace();
         }
         return 0;
+    }
+
+    case WM_RBUTTONDOWN:
+    {
+        if ((buildingConvex || buildingNonConvex) && polygonPoints.size() >= 3)
+        {
+            // close the polygon by connecting last point to first
+            POINT first = polygonPoints.front();
+            POINT last = polygonPoints.back();
+            dDAAlgorithm(last.x, last.y, first.x, first.y);
+
+            if (buildingConvex)
+            {
+                buildingConvex = false;
+                ConvexFilling(); // ← Convex
+            }
+            else if (buildingNonConvex)
+            {
+                buildingNonConvex = false;
+                NonConvexFilling(); // ← Non-Convex
+            }
+
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        if (waitingForCurve)
+        {
+            waitingForCurve = false;
+
+            Vector2 t0;
+            Vector2 t1;
+
+            int n = splinePoints.size();
+            t0 = (splinePoints[n - 1] - splinePoints[n - 3]) * (1 - CARDINAL_TENSION);
+            t1 = (splinePoints[n - 1] - splinePoints[n - 2]) * (1 - CARDINAL_TENSION);
+
+            drawCardinalSplineCurve(splinePoints[n - 2], t0, splinePoints[n - 1], t1);
+            splinePoints.clear();
+        }
+        break;
     }
 
     case WM_LBUTTONDOWN:
@@ -1625,18 +2108,102 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             return 0;
         }
-        // if (waitingForFillCircleWithLines)
-        // {
-        //     int mouseX = GET_X_LPARAM(lParam);
-        //     int mouseY = GET_Y_LPARAM(lParam);
+        if (waitingForFillSquareWithHermit)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
 
-        //     int radius = 100;
+            if (!firstSquarePointSelected)
+            {
+                squareStartX = mouseX;
+                squareStartY = mouseY;
 
-        //     fillCircleWithLinesQuarter(mouseX, mouseY, radius, 1);
+                firstSquarePointSelected = true;
 
-        //     waitingForFillCircleWithLines = false;
-        //     return 0;
-        // }
+                MessageBox(
+                    hwnd,
+                    _T("Click second point to determine square size"),
+                    _T("Square Size"),
+                    MB_OK);
+            }
+            else
+            {
+                int dx = abs(mouseX - squareStartX);
+                int dy = abs(mouseY - squareStartY);
+
+                int sideLength = min(dx, dy);
+
+                draw4Sides(squareStartX, squareStartY, squareStartX + sideLength, squareStartY + sideLength);
+
+                fillSquareWithHermitCurve(
+                    {(double)squareStartX, (double)squareStartY},
+                    sideLength);
+
+                waitingForFillSquareWithHermit = false;
+                firstSquarePointSelected = false;
+
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+
+            return 0;
+        }
+        if (waitingForFillRectWithBezier)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+
+            if (!firstRectPointSelected)
+            {
+                rectStartX = mouseX;
+                rectStartY = mouseY;
+
+                firstRectPointSelected = true;
+
+                MessageBox(
+                    hwnd,
+                    _T("Click second point to determine rectangle size"),
+                    _T("Rectangle Size"),
+                    MB_OK);
+            }
+            else
+            {
+                int dx = abs(mouseX - rectStartX);
+                int dy = abs(mouseY - rectStartY);
+
+                int width = dx;
+                int height = dy;
+
+                draw4Sides(rectStartX, rectStartY, rectStartX + width, rectStartY + height);
+
+                fillRectWithBezierCurve(
+                    {(double)rectStartX, (double)rectStartY},
+                    width, height);
+
+                waitingForFillRectWithBezier = false;
+                firstRectPointSelected = false;
+
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+        }
+        if (buildingConvex || buildingNonConvex)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+            polygonPoints.push_back({mouseX, mouseY});
+
+            Draw8Points(hdcBuffer, mouseX, mouseY, 0, 3, currentColor); // small circle for vertex
+            Draw8Points(hdcBuffer, mouseX, mouseY, 2, 2, currentColor);
+
+            int n = polygonPoints.size();
+            if (n >= 2)
+            {
+                POINT prev = polygonPoints[n - 2];
+                dDAAlgorithm(prev.x, prev.y, mouseX, mouseY);
+            }
+
+            InvalidateRect(hwnd, NULL, FALSE);
+            return 0;
+        }
         if (waitingForFloodFill)
         {
             int mouseX = GET_X_LPARAM(lParam);
@@ -1705,14 +2272,37 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
             return 0;
         }
-        break;
-    }
+        if (waitingForCurve)
+        {
 
-    case WM_SETCURSOR:
-    {
-        // Apply the selected cursor type
-        SetCursor(LoadCursor(NULL, GetCursorHandleByType(currentCursorType)));
-        return TRUE;
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+            Vector2 p;
+            p.x = mouseX;
+            p.y = mouseY;
+
+            splinePoints.push_back(p);
+            cout << p.x << " " << p.y << "\n";
+            int n = splinePoints.size();
+
+            Vector2 t0;
+            Vector2 t1;
+
+            if (n == 3)
+            {
+                t0 = (splinePoints[1] - splinePoints[0]) * (1 - CARDINAL_TENSION);
+                t1 = (splinePoints[2] - splinePoints[0]) * (1 - CARDINAL_TENSION);
+                drawCardinalSplineCurve(splinePoints[0], t0, splinePoints[1], t1);
+            }
+            else if (n > 3)
+            {
+                t0 = (splinePoints[n - 2] - splinePoints[n - 4]) * (1 - CARDINAL_TENSION);
+                t1 = (splinePoints[n - 1] - splinePoints[n - 3]) * (1 - CARDINAL_TENSION);
+                drawCardinalSplineCurve(splinePoints[n - 3], t0, splinePoints[n - 2], t1);
+                cout << "DRAWN\n";
+            }
+        }
+        break;
     }
 
     case WM_PAINT:
@@ -1823,7 +2413,8 @@ void CreateMenuBar(HWND hwnd)
     AppendMenu(hFillMenu, MF_STRING, IDM_FILL_CIRCLE_CIRCLES, _T("Fill Circle with Circles"));
     AppendMenu(hFillMenu, MF_STRING, IDM_FILL_SQUARE_HERMIT, _T("Fill Square with Hermit"));
     AppendMenu(hFillMenu, MF_STRING, IDM_FILL_RECT_BEZIER, _T("Fill Rectangle with Bezier"));
-    AppendMenu(hFillMenu, MF_STRING, IDM_FILL_CONVEX, _T("Convex/Non-Convex Fill"));
+    AppendMenu(hFillMenu, MF_STRING, IDM_FILL_CONVEX, _T("Convex Fill"));
+    AppendMenu(hFillMenu, MF_STRING, IDM_FILL_NONCONVEX, _T("Non-Convex Fill"));
     AppendMenu(hFillMenu, MF_STRING, IDM_FILL_FLOOD_REC, _T("Recursive Flood Fill"));
     AppendMenu(hFillMenu, MF_STRING, IDM_FILL_FLOOD_NONREC, _T("Non-Recursive Flood Fill"));
 
