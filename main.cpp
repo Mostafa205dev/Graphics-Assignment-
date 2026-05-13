@@ -2072,28 +2072,32 @@ void drawHappyFace()
     if (!hdcBuffer)
         return;
 
-    int centerX = WINDOW_WIDTH / 2;
-    int centerY = WINDOW_HEIGHT / 2;
-    int headRadius = 100;
-    int eyeRadius = 8;
-    int mouthRadius = 40;
+    int cx = WINDOW_WIDTH / 2;
+    int cy = WINDOW_HEIGHT / 2;
 
-    // Draw head
-    drawCircleMidpoint(centerX, centerY, headRadius);
+    // ── Face (circle) ──────────────────────────────────────────
+    drawCircleMidpoint(cx, cy, 100);
 
-    // Draw left eye
-    drawCircleMidpoint(centerX - 30, centerY - 30, eyeRadius);
+    // ── Eyes (circles) ─────────────────────────────────────────
+    drawCircleMidpoint(cx - 32, cy - 30, 10); // left eye
+    drawCircleMidpoint(cx + 32, cy - 30, 10); // right eye
 
-    // Draw right eye
-    drawCircleMidpoint(centerX + 30, centerY - 30, eyeRadius);
+    // ── Nose (two DDA lines forming a small V) ──────────────────
+    // left leg: from tip down-left
+    dDAAlgorithm(cx, cy - 5, cx - 8, cy + 15);      // left leg
+    dDAAlgorithm(cx - 8, cy + 15, cx + 8, cy + 15); // base crossbar
 
-    // Draw smile (curved line using small circles)
-    for (int i = -35; i <= 35; i++)
-    {
-        int y = (int)(mouthRadius - sqrt(mouthRadius * mouthRadius - i * i) + centerY);
-        SetPixel(hdcBuffer, centerX + i, y, currentColor);
-    }
+    // ── Smile (Hermite curve, arcs upward at the ends) ──────────
+    // P0 = left corner, P1 = right corner
+    // Tangents point downward at both ends so the curve bows down (smile)
+    Vector2 P0 = {(double)(cx - 45), (double)(cy + 30)};
+    Vector2 P1 = {(double)(cx + 45), (double)(cy + 30)};
+    // Tangent direction: pointing down and inward makes the arc bow downward = smile
+    Vector2 T0 = {80.0, 60.0};  // rightward + downward at left corner
+    Vector2 T1 = {80.0, -60.0}; // rightward + upward   at right corner
+    DrawHermiteCurve(P0, T0, P1, T1, 200);
 
+    cout << "Happy Face drawn!" << endl;
     drawnShapes.push_back("BONUS_HAPPY_FACE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
@@ -2105,28 +2109,30 @@ void drawSadFace()
     if (!hdcBuffer)
         return;
 
-    int centerX = WINDOW_WIDTH / 2;
-    int centerY = WINDOW_HEIGHT / 2;
-    int headRadius = 100;
-    int eyeRadius = 8;
-    int mouthRadius = 40;
+    int cx = WINDOW_WIDTH / 2;
+    int cy = WINDOW_HEIGHT / 2;
 
-    // Draw head
-    drawCircleMidpoint(centerX, centerY, headRadius);
+    // ── Face (circle) ──────────────────────────────────────────
+    drawCircleMidpoint(cx, cy, 100);
 
-    // Draw left eye
-    drawCircleMidpoint(centerX - 30, centerY - 30, eyeRadius);
+    // ── Eyes (circles) ─────────────────────────────────────────
+    drawCircleMidpoint(cx - 32, cy - 30, 10); // left eye
+    drawCircleMidpoint(cx + 32, cy - 30, 10); // right eye
 
-    // Draw right eye
-    drawCircleMidpoint(centerX + 30, centerY - 30, eyeRadius);
+    // ── Nose (two DDA lines forming a small V) ──────────────────
+    dDAAlgorithm(cx, cy - 5, cx - 8, cy + 15);      // left leg
+    dDAAlgorithm(cx - 8, cy + 15, cx + 8, cy + 15); // base crossbar
 
-    // Draw frown (curved line using small circles - inverted from smile)
-    for (int i = -35; i <= 35; i++)
-    {
-        int y = (int)(centerY + 50 - (mouthRadius - sqrt(mouthRadius * mouthRadius - i * i)));
-        SetPixel(hdcBuffer, centerX + i, y, currentColor);
-    }
+    // ── Frown (Hermite curve, arcs upward = inverted smile) ─────
+    // P0 = left corner, P1 = right corner — placed lower on the face
+    Vector2 P0 = {(double)(cx - 45), (double)(cy + 55)};
+    Vector2 P1 = {(double)(cx + 45), (double)(cy + 55)};
+    // Tangents reversed: curve bows upward = frown
+    Vector2 T0 = {80.0, -60.0}; // rightward + upward   at left corner
+    Vector2 T1 = {80.0, 60.0};  // rightward + downward at right corner
+    DrawHermiteCurve(P0, T0, P1, T1, 200);
 
+    cout << "Sad Face drawn!" << endl;
     drawnShapes.push_back("BONUS_SAD_FACE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
