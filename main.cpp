@@ -993,7 +993,8 @@ void InitEntries(Entry table[])
 void ScanEdge(POINT v1, POINT v2, Entry table[])
 {
     if (v1.y == v2.y)
-        return;
+        return; // ignore horizontal edges
+
     if (v1.y > v2.y)
         swap(v1, v2);
 
@@ -1001,17 +1002,17 @@ void ScanEdge(POINT v1, POINT v2, Entry table[])
     double x = v1.x;
     int y = v1.y;
 
-    while (y < v2.y)
+    while (y < v2.y) // from top v1.y to bottom v2.y
     {
         if (y >= 0 && y < MAXENTRIES)
         {
-            if (x < table[y].xmin)
+            if (x < table[y].xmin) // if find x < min x , update xmin
                 table[y].xmin = (int)ceil(x);
-            if (x > table[y].xmax)
+            if (x > table[y].xmax) // if find x > max x , update xmax
                 table[y].xmax = (int)floor(x);
         }
-        y++;
-        x += minv;
+        y++;       // one move down
+        x += minv; // move one x down by slope
     }
 }
 
@@ -1043,7 +1044,8 @@ int cross(POINT A, POINT B, POINT C)
 bool isConvex(const vector<POINT> &p)
 {
     int n = p.size();
-    if (n < 3) return false;
+    if (n < 3)
+        return false;
 
     int sign = 0;
 
@@ -1090,11 +1092,11 @@ void ConvexFilling()
         v2.x = polygonPoints[i].x; // current point
         v2.y = polygonPoints[i].y;
 
-        ScanEdge(v1, v2, table);
+        ScanEdge(v1, v2, table); // extract table y and its x1(xmin) and x2(xmax)
         v1 = v2;
     }
 
-    DrawScanLines(table, currentColor);
+    DrawScanLines(table, currentColor); // draw horizontal lines between x1 and x2 for each y
 
     delete[] table;
 
