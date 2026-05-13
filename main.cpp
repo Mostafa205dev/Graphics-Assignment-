@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <cmath>
 #include <string>
+#include <algorithm>
 #include <sstream>
 #include <tchar.h>
 #include <windowsx.h>
@@ -88,8 +89,9 @@ LPCTSTR cursorTypeNames[] = {_T("Arrow"), _T("Hand"), _T("Wait (Hourglass)"), _T
 #define IDM_FILL_SQUARE_HERMIT 7003
 #define IDM_FILL_RECT_BEZIER 7004
 #define IDM_FILL_CONVEX 7005
-#define IDM_FILL_FLOOD_REC 7006
-#define IDM_FILL_FLOOD_NONREC 7007
+#define IDM_FILL_NONCONVEX 7006
+#define IDM_FILL_FLOOD_REC 7007
+#define IDM_FILL_FLOOD_NONREC 7008
 
 #define IDM_CLIP_POINT_RECT 8001
 #define IDM_CLIP_LINE_RECT 8002
@@ -969,10 +971,93 @@ void fillRectangleWithBezierCurve()
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-void convexNonConvexFilling()
+#define MAXENTRIES 768
+
+struct Entry
 {
-    cout << "Convex and Non-Convex Filling Algorithm..." << endl;
-    drawnShapes.push_back("FILL_CONVEX_NON_CONVEX");
+    int xmin, xmax;
+};
+
+vector<POINT> polygonPoints;
+bool buildingConvex = false;
+bool buildingNonConvex = false;
+void InitEntries(Entry table[])
+{
+    for (int i = 0; i < MAXENTRIES; i++)
+    {
+        table[i].xmin = INT_MAX;
+        table[i].xmax = INT_MIN;
+    }
+}
+
+void ScanEdge(POINT v1, POINT v2, Entry table[])
+{
+    if (v1.y == v2.y)
+        return;
+    if (v1.y > v2.y)
+        swap(v1, v2);
+
+    double minv = (double)(v2.x - v1.x) / (v2.y - v1.y);
+    double x = v1.x;
+    int y = v1.y;
+
+    while (y < v2.y)
+    {
+        if (y >= 0 && y < MAXENTRIES)
+        {
+            if (x < table[y].xmin)
+                table[y].xmin = (int)ceil(x);
+            if (x > table[y].xmax)
+                table[y].xmax = (int)floor(x);
+        }
+        y++;
+        x += minv;
+    }
+}
+
+void DrawScanLines(Entry table[], COLORREF color)
+{
+    for (int y = 0; y < MAXENTRIES; y++)
+        if (table[y].xmin <= table[y].xmax)
+            for (int x = table[y].xmin; x <= table[y].xmax; x++)
+                SetPixel(hdcBuffer, x, y, color);
+}
+
+void ConvexFilling()
+{
+    if (polygonPoints.size() < 3)
+        return;
+
+    int n = polygonPoints.size();
+
+    Entry *table = new Entry[MAXENTRIES];
+    InitEntries(table);
+
+        POINT v1;
+    v1.x = polygonPoints[n - 1].x;
+    v1.y = polygonPoints[n - 1].y;
+
+    for (int i = 0; i < n; i++)
+    {
+        POINT v2;
+        v2.x = polygonPoints[i].x;
+        v2.y = polygonPoints[i].y;
+
+        ScanEdge(v1, v2, table);
+        v1 = v2;
+    }
+
+    DrawScanLines(table, currentColor);
+
+    delete[] table;
+
+    drawnShapes.push_back("FILL_CONVEX_SCANLINE");
+    InvalidateRect(hMainWindow, NULL, FALSE);
+}
+void NonConvexFilling()
+{
+    cout << "Filling non-convex polygon using Scanline Fill algorithm..." << endl;
+    drawnShapes.push_back("FILL_NONCONVEX_POLYGON_SCANLINE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
@@ -1017,11 +1102,6 @@ void recursiveFloodFill(int x, int y)
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
-struct Point
-{
-    int x, y;
-};
-
 void nonRecursiveFloodFill(int x, int y)
 {
     cout << "Non-Recursive Flood Fill starting at (" << x << "," << y << ")" << endl;
@@ -1032,12 +1112,12 @@ void nonRecursiveFloodFill(int x, int y)
     if (oldColor == newColor)
         return;
 
-    stack<Point> S;
+    stack<POINT> S;
     S.push({x, y});
 
     while (!S.empty())
     {
-        Point p = S.top();
+        POINT p = S.top();
         S.pop();
 
         // boundary check
@@ -1514,7 +1594,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILL_CONVEX)
         {
-            convexNonConvexFilling();
+            if (!buildingConvex)
+            {
+
+                polygonPoints.clear();
+                buildingConvex = true;
+                MessageBox(hwnd,
+                           _T("Click to add polygon points.\nRight-click to finish."),
+                           _T("Convex Fill"), MB_OK);
+            }
+        }
+        else if (wmId == IDM_FILL_NONCONVEX)
+        {
+            polygonPoints.clear();
+            buildingNonConvex = true;
+            MessageBox(hwnd,
+                       _T("Click to add polygon points.\nRight-click to finish."),
+                       _T("Non-Convex Fill"), MB_OK);
         }
         else if (wmId == IDM_FILL_FLOOD_REC)
         {
@@ -1569,6 +1665,31 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             drawSadFace();
         }
         return 0;
+    }
+
+    case WM_RBUTTONDOWN:
+    {
+        if ((buildingConvex || buildingNonConvex) && polygonPoints.size() >= 3)
+        {
+            // أغلق الـ polygon
+            POINT first = polygonPoints.front();
+            POINT last = polygonPoints.back();
+            dDAAlgorithm(last.x, last.y, first.x, first.y);
+
+            if (buildingConvex)
+            {
+                buildingConvex = false;
+                ConvexFilling(); // ← Convex
+            }
+            else if (buildingNonConvex)
+            {
+                buildingNonConvex = false;
+                NonConvexFilling(); // ← Non-Convex
+            }
+
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        break;
     }
 
     case WM_LBUTTONDOWN:
@@ -1644,18 +1765,25 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             return 0;
         }
-        // if (waitingForFillCircleWithLines)
-        // {
-        //     int mouseX = GET_X_LPARAM(lParam);
-        //     int mouseY = GET_Y_LPARAM(lParam);
+        if (buildingConvex || buildingNonConvex)
+        {
+            int mouseX = GET_X_LPARAM(lParam);
+            int mouseY = GET_Y_LPARAM(lParam);
+            polygonPoints.push_back({mouseX, mouseY});
 
-        //     int radius = 100;
+            Draw8Points(hdcBuffer, mouseX, mouseY, 0, 3, currentColor);
+            Draw8Points(hdcBuffer, mouseX, mouseY, 2, 2, currentColor);
 
-        //     fillCircleWithLinesQuarter(mouseX, mouseY, radius, 1);
+            int n = polygonPoints.size();
+            if (n >= 2)
+            {
+                POINT prev = polygonPoints[n - 2];
+                dDAAlgorithm(prev.x, prev.y, mouseX, mouseY);
+            }
 
-        //     waitingForFillCircleWithLines = false;
-        //     return 0;
-        // }
+            InvalidateRect(hwnd, NULL, FALSE);
+            return 0;
+        }
         if (waitingForFloodFill)
         {
             int mouseX = GET_X_LPARAM(lParam);
@@ -1725,13 +1853,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
         break;
-    }
-
-    case WM_SETCURSOR:
-    {
-        // Apply the selected cursor type
-        SetCursor(LoadCursor(NULL, GetCursorHandleByType(currentCursorType)));
-        return TRUE;
     }
 
     case WM_PAINT:
@@ -1842,7 +1963,8 @@ void CreateMenuBar(HWND hwnd)
     AppendMenu(hFillMenu, MF_STRING, IDM_FILL_CIRCLE_CIRCLES, _T("Fill Circle with Circles"));
     AppendMenu(hFillMenu, MF_STRING, IDM_FILL_SQUARE_HERMIT, _T("Fill Square with Hermit"));
     AppendMenu(hFillMenu, MF_STRING, IDM_FILL_RECT_BEZIER, _T("Fill Rectangle with Bezier"));
-    AppendMenu(hFillMenu, MF_STRING, IDM_FILL_CONVEX, _T("Convex/Non-Convex Fill"));
+    AppendMenu(hFillMenu, MF_STRING, IDM_FILL_CONVEX, _T("Convex Fill"));
+    AppendMenu(hFillMenu, MF_STRING, IDM_FILL_NONCONVEX, _T("Non-Convex Fill"));
     AppendMenu(hFillMenu, MF_STRING, IDM_FILL_FLOOD_REC, _T("Recursive Flood Fill"));
     AppendMenu(hFillMenu, MF_STRING, IDM_FILL_FLOOD_NONREC, _T("Non-Recursive Flood Fill"));
 
