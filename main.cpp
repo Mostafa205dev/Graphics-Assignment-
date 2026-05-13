@@ -1987,11 +1987,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Bonus Menu
         else if (wmId == IDM_BONUS_HAPPY)
         {
-            drawHappyFace();
-        }
+			drawSadFace();
+		}
         else if (wmId == IDM_BONUS_SAD)
         {
-            drawSadFace();
+			drawHappyFace();
         }
         return 0;
     }
@@ -2288,6 +2288,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             Vector2 t0;
             Vector2 t1;
 
+			drawCircleDirect(mouseX,mouseY,2);
             if (n == 3)
             {
                 t0 = (splinePoints[1] - splinePoints[0]) * (1 - CARDINAL_TENSION);
