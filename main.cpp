@@ -848,8 +848,8 @@ bool getLastCircle(int &cx, int &cy, int &r)
         if (s.find("CIRCLE_") == 0)
         {
             if (sscanf_s(s.c_str(),
-                "%*[^:]: center(%d,%d) radius=%d",
-                &cx, &cy, &r) == 3)
+                         "%*[^:]: center(%d,%d) radius=%d",
+                         &cx, &cy, &r) == 3)
             {
                 return true;
             }
@@ -857,6 +857,7 @@ bool getLastCircle(int &cx, int &cy, int &r)
     }
     return false;
 }
+
 void fillCircleWithLinesQuarter(int xc, int yc, int r, int quarter)
 {
     if (!hdcBuffer)
@@ -1218,6 +1219,33 @@ void parseAndDrawShape(const string &shapeData)
     // Add more shape types here as needed in the future
 }
 
+int askQuarter()
+{
+    int result = MessageBox(
+        NULL,
+        _T("Choose Quarter:\nYES = Q1\nNO = Q2\nCANCEL = More Options"),
+        _T("Select Quarter"),
+        MB_YESNOCANCEL | MB_ICONQUESTION);
+
+    if (result == IDYES)
+        return 1;
+    if (result == IDNO)
+        return 2;
+
+    // Second dialog for Q3 / Q4
+    result = MessageBox(
+        NULL,
+        _T("Choose:\nYES = Q3\nNO = Q4"),
+        _T("Select Quarter"),
+        MB_YESNO | MB_ICONQUESTION);
+
+    if (result == IDYES)
+        return 3;
+    if (result == IDNO)
+        return 4;
+
+    return -1; // fallback
+}
 // ==================== Window Procedure ====================
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -1391,9 +1419,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (getLastCircle(cx, cy, r))
             {
                 cout << "Filling last drawn circle with lines..." << endl;
-
-                fillCircleWithLinesQuarter(cx, cy, r, 1);
-
+                int quarter = askQuarter();
+                if (quarter != -1)
+                    fillCircleWithLinesQuarter(cx, cy, r, quarter);
+                else
+                    cout << "Invalid quarter selection. Filling cancelled." << endl;
                 InvalidateRect(hMainWindow, NULL, FALSE);
             }
             else
