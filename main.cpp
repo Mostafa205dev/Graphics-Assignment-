@@ -19,6 +19,10 @@ using namespace std;
 const int WINDOW_WIDTH = 1024;
 const int WINDOW_HEIGHT = 768;
 const wchar_t CLASS_NAME[] = L"Graphics2DWindowClass";
+vector<POINT> tempPoints;
+
+bool isFirstClick = true;
+int linex1, liney1;
 
 // ==================== Global Variables ====================
 HWND hMainWindow = NULL;
@@ -298,6 +302,104 @@ void loadFromFile()
     }
 }
 
+void savePixelsToFile()
+{
+    ofstream out("pixels.txt");
+
+    if (!out.is_open())
+    {
+        MessageBox(hMainWindow, _T("Error saving file!"), _T("Error"), MB_OK);
+        return;
+    }
+
+    // Save dimensions
+    out << WINDOW_WIDTH << " " << WINDOW_HEIGHT << endl;
+
+    for (int y = 0; y < WINDOW_HEIGHT; y++)
+    {
+        for (int x = 0; x < WINDOW_WIDTH; x++)
+        {
+            COLORREF c = GetPixel(hdcBuffer, x, y);
+            out << c << " ";
+        }
+        out << endl;
+    }
+
+    out.close();
+
+    MessageBox(hMainWindow, _T("Pixels saved!"), _T("Success"), MB_OK);
+}
+
+void loadPixelsFromFile()
+{
+    ifstream in("pixels.txt");
+
+    if (!in.is_open())
+    {
+        MessageBox(hMainWindow, _T("File not found!"), _T("Error"), MB_OK);
+        return;
+    }
+
+    int width, height;
+    in >> width >> height;
+
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            COLORREF c;
+            in >> c;
+            SetPixel(hdcBuffer, x, y, c);
+        }
+    }
+
+    in.close();
+
+    InvalidateRect(hMainWindow, NULL, FALSE);
+    MessageBox(hMainWindow, _T("Pixels loaded!"), _T("Success"), MB_OK);
+}
+
+void savePixelsBinary()
+{
+    ofstream out("pixels.bin", ios::binary);
+
+    out.write((char *)&WINDOW_WIDTH, sizeof(int));
+    out.write((char *)&WINDOW_HEIGHT, sizeof(int));
+
+    for (int y = 0; y < WINDOW_HEIGHT; y++)
+    {
+        for (int x = 0; x < WINDOW_WIDTH; x++)
+        {
+            COLORREF c = GetPixel(hdcBuffer, x, y);
+            out.write((char *)&c, sizeof(COLORREF));
+        }
+    }
+
+    out.close();
+}
+
+void loadPixelsBinary()
+{
+    ifstream in("pixels.bin", ios::binary);
+
+    int width, height;
+    in.read((char *)&width, sizeof(int));
+    in.read((char *)&height, sizeof(int));
+
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            COLORREF c;
+            in.read((char *)&c, sizeof(COLORREF));
+            SetPixel(hdcBuffer, x, y, c);
+        }
+    }
+
+    in.close();
+
+    InvalidateRect(hMainWindow, NULL, FALSE);
+}
 // ==================== Preferences Menu Functions ====================
 
 void setWhiteBackground()
@@ -336,35 +438,155 @@ LPCWSTR GetCursorHandleByType(int cursorType)
     }
 }
 
+// Dialog proc for the cursor picker
+INT_PTR CALLBACK CursorPickerDlgProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    // Radio button IDs: 2000..2007
+    switch (uMsg)
+    {
+    case WM_INITDIALOG:
+    {
+        // Check the radio button matching the current cursor
+        CheckRadioButton(hwnd, 2000, 2007, 2000 + currentCursorType);
+        return TRUE;
+    }
+    case WM_COMMAND:
+    {
+        int id = LOWORD(wParam);
+        if (id == IDOK)
+        {
+            // Find which radio is checked
+            for (int i = 0; i < 8; i++)
+            {
+                if (IsDlgButtonChecked(hwnd, 2000 + i) == BST_CHECKED)
+                {
+                    currentCursorType = i;
+                    break;
+                }
+            }
+            EndDialog(hwnd, IDOK);
+            return TRUE;
+        }
+        if (id == IDCANCEL)
+        {
+            EndDialog(hwnd, IDCANCEL);
+            return TRUE;
+        }
+        // Radio button clicked: give instant preview
+        if (id >= 2000 && id <= 2007)
+        {
+            SetCursor(LoadCursor(NULL, GetCursorHandleByType(id - 2000)));
+            return TRUE;
+        }
+        return FALSE;
+    }
+    }
+    return FALSE;
+}
+
 void changeMouseCursor()
 {
     cout << "=== Select Mouse Cursor ===" << endl;
-    cout << "Available cursor options:" << endl;
-    cout << "0: Arrow" << endl;
-    cout << "1: Hand (Pointer)" << endl;
-    cout << "2: Wait (Hourglass)" << endl;
-    cout << "3: Cross" << endl;
-    cout << "4: IBeam (Text)" << endl;
-    cout << "5: No/Prohibited" << endl;
-    cout << "6: Size North-South" << endl;
-    cout << "7: Size West-East" << endl;
 
-    // Show information about available cursors
-    int result = MessageBox(hMainWindow,
-                            _T("Select a mouse cursor:\n\n")
-                            _T("Click 'Yes' to cycle through cursor types:\n")
-                            _T("Arrow -> Hand -> Wait -> Cross -> IBeam -> No -> SizeNS -> SizeWE -> Arrow...\n\n")
-                            _T("Current cursor will change each time you click Yes"),
-                            _T("Change Mouse Cursor"),
-                            MB_YESNO | MB_ICONQUESTION);
-
-    if (result == IDYES)
+    // Build an in-memory dialog template with 8 radio buttons + OK/Cancel.
+    // Layout: 260 x 200 dialog units.
+    struct
     {
-        // Cycle through cursors
-        currentCursorType = (currentCursorType + 1) % 8;
+        DLGTEMPLATE tmpl;
+        WORD menu, wndClass, title; // all zero = no menu/class, empty title follows
+        WCHAR szTitle[16];
+    } hdr = {};
+
+    // We'll build the whole template in a raw buffer so we can append controls.
+    // Each DLGITEMTEMPLATE must be DWORD-aligned.
+    const int NUM_CONTROLS = 10; // 8 radios + OK + Cancel
+    const int BUF = 4096;
+    static BYTE dlgBuf[BUF];
+    ZeroMemory(dlgBuf, BUF);
+
+    BYTE *p = dlgBuf;
+
+    // --- DLGTEMPLATE ---
+    DLGTEMPLATE *dt = (DLGTEMPLATE *)p;
+    dt->style = DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    dt->dwExtendedStyle = 0;
+    dt->cdit = NUM_CONTROLS;
+    dt->x = 0;
+    dt->y = 0;
+    dt->cx = 220;
+    dt->cy = 185;
+    p += sizeof(DLGTEMPLATE);
+
+    // menu (none) = 0x0000
+    *(WORD *)p = 0;
+    p += 2;
+    // window class (none) = 0x0000
+    *(WORD *)p = 0;
+    p += 2;
+    // title
+    const wchar_t *dlgTitle = L"Change Mouse Cursor";
+    memcpy(p, dlgTitle, (wcslen(dlgTitle) + 1) * 2);
+    p += (wcslen(dlgTitle) + 1) * 2;
+    // DWORD align
+    p = dlgBuf + ((p - dlgBuf + 3) & ~3);
+
+    // Helper lambda to append a DLGITEMTEMPLATE
+    auto addCtrl = [&](DWORD style, short x, short y, short cx, short cy,
+                       WORD id, const wchar_t *cls, const wchar_t *text)
+    {
+        p = dlgBuf + ((p - dlgBuf + 3) & ~3); // align
+        DLGITEMTEMPLATE *it = (DLGITEMTEMPLATE *)p;
+        it->style = style | WS_CHILD | WS_VISIBLE;
+        it->dwExtendedStyle = 0;
+        it->x = x;
+        it->y = y;
+        it->cx = cx;
+        it->cy = cy;
+        it->id = id;
+        p += sizeof(DLGITEMTEMPLATE);
+        // class: sz_Or_Ord — use string
+        memcpy(p, cls, (wcslen(cls) + 1) * 2);
+        p += (wcslen(cls) + 1) * 2;
+        // title text
+        memcpy(p, text, (wcslen(text) + 1) * 2);
+        p += (wcslen(text) + 1) * 2;
+        // creation data (none)
+        *(WORD *)p = 0;
+        p += 2;
+    };
+
+    // 8 radio buttons, 2 columns of 4
+    const wchar_t *labels[8] = {
+        L"Arrow", L"Hand (Pointer)",
+        L"Wait (Hourglass)", L"Cross",
+        L"IBeam (Text)", L"No / Prohibited",
+        L"Size N-S", L"Size W-E"};
+    for (int i = 0; i < 8; i++)
+    {
+        short col = (i < 4) ? 10 : 115;
+        short row = 10 + (i % 4) * 28;
+        DWORD radioStyle = BS_AUTORADIOBUTTON;
+        if (i == 0 || i == 4)
+            radioStyle |= WS_GROUP; // start each column group
+        addCtrl(radioStyle, col, row, 100, 14, (WORD)(2000 + i), L"BUTTON", labels[i]);
+    }
+
+    // OK button
+    addCtrl(BS_DEFPUSHBUTTON, 55, 158, 50, 14, IDOK, L"BUTTON", L"OK");
+    // Cancel button
+    addCtrl(BS_PUSHBUTTON, 115, 158, 50, 14, IDCANCEL, L"BUTTON", L"Cancel");
+
+    INT_PTR res = DialogBoxIndirect(
+        GetModuleHandle(NULL),
+        (DLGTEMPLATE *)dlgBuf,
+        hMainWindow,
+        CursorPickerDlgProc);
+
+    if (res == IDOK)
+    {
+        // Immediately apply — WM_SETCURSOR in WindowProc keeps it permanent
         SetCursor(LoadCursor(NULL, GetCursorHandleByType(currentCursorType)));
-        cout << "Mouse cursor changed to type: " << currentCursorType << endl;
-        cout << "Cursor: " << cursorTypeNames[currentCursorType] << endl;
+        cout << "Cursor changed to: " << currentCursorType << endl;
     }
 }
 
@@ -1468,55 +1690,377 @@ void nonRecursiveFloodFill(int x, int y)
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
+// ==================== Clipping Data Structures & Helper Functions ====================
+
+// For Cohen-Sutherland
+union OutCode
+{
+    struct
+    {
+        unsigned int left : 1, right : 1, bottom : 1, top : 1;
+    };
+    unsigned int all;
+};
+
+OutCode GetOutCode(double x, double y, int xleft, int ytop, int xright, int ybottom)
+{
+    OutCode out;
+    out.all = 0;
+    if (x < xleft)
+        out.left = 1;
+    else if (x > xright)
+        out.right = 1;
+    if (y < ytop)
+        out.top = 1; // In GDI ytop is smaller value
+    else if (y > ybottom)
+        out.bottom = 1;
+    return out;
+}
+
+struct Vertex
+{
+    double x, y;
+    Vertex(double x = 0, double y = 0) : x(x), y(y) {}
+};
+typedef vector<Vertex> VertexList;
+
+// Sutherland-Hodgman Intersections
+Vertex VIntersect(Vertex v1, Vertex v2, int xedge)
+{
+    double y = v1.y + (xedge - v1.x) * (v2.y - v1.y) / (v2.x - v1.x);
+    return Vertex(xedge, y);
+}
+
+Vertex HIntersect(Vertex v1, Vertex v2, int yedge)
+{
+    double x = v1.x + (yedge - v1.y) * (v2.x - v1.x) / (v2.y - v1.y);
+    return Vertex(x, yedge);
+}
+
+// ==================== Global Clipping State ====================
+int clipLeft = 200, clipTop = 150, clipRight = 800, clipBottom = 500;
+int currentClippingMode = 0; // 0:None 1:PointRect 2:LineRect 3:PolyRect 4:PointSq 5:LineSq 6:PointCirc 7:LineCirc
+#define CLIP_NONE 0
+#define CLIP_POINT 1
+#define CLIP_LINE 2
+#define CLIP_POLYGON 3
+#define CLIP_POINT_SQ 4
+#define CLIP_LINE_SQ 5
+#define CLIP_POINT_CIRC 6
+#define CLIP_LINE_CIRC 7
+
+// Square clip window: center + half-side (draws as a square)
+int clipSqCX = 512, clipSqCY = 325, clipSqHalf = 150;
+
+// Circle clip window: center + radius
+int clipCircCX = 512, clipCircCY = 325, clipCircR = 150;
+
 // ==================== Clipping Menu Functions ====================
 
-void clipPointRectangle()
+void drawClippingWindow(HDC hdc)
 {
-    cout << "Point Clipping using Rectangle Window..." << endl;
-    drawnShapes.push_back("CLIP_POINT_RECTANGLE");
-    InvalidateRect(hMainWindow, NULL, FALSE);
+    HPEN hPen = CreatePen(PS_SOLID, 5, RGB(255, 0, 0));
+    HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+
+    if (currentClippingMode == CLIP_POINT || currentClippingMode == CLIP_LINE || currentClippingMode == CLIP_POLYGON)
+    {
+        // Draw rectangle clip window
+        MoveToEx(hdc, clipLeft, clipTop, NULL);
+        LineTo(hdc, clipRight, clipTop);
+        LineTo(hdc, clipRight, clipBottom);
+        LineTo(hdc, clipLeft, clipBottom);
+        LineTo(hdc, clipLeft, clipTop);
+    }
+    else if (currentClippingMode == CLIP_POINT_SQ || currentClippingMode == CLIP_LINE_SQ)
+    {
+        // Draw square clip window
+        int L = clipSqCX - clipSqHalf, T = clipSqCY - clipSqHalf;
+        int R = clipSqCX + clipSqHalf, B = clipSqCY + clipSqHalf;
+        MoveToEx(hdc, L, T, NULL);
+        LineTo(hdc, R, T);
+        LineTo(hdc, R, B);
+        LineTo(hdc, L, B);
+        LineTo(hdc, L, T);
+    }
+    else if (currentClippingMode == CLIP_POINT_CIRC || currentClippingMode == CLIP_LINE_CIRC)
+    {
+        // Draw circle clip window using GDI Ellipse (overlay only, not into buffer)
+        SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        Ellipse(hdc,
+                clipCircCX - clipCircR, clipCircCY - clipCircR,
+                clipCircCX + clipCircR, clipCircCY + clipCircR);
+    }
+
+    SelectObject(hdc, hOldPen);
+    DeleteObject(hPen);
 }
 
-void clipLineRectangle()
+void clipPointRectangle(int x, int y)
 {
-    cout << "Line Clipping using Rectangle Window..." << endl;
-    drawnShapes.push_back("CLIP_LINE_RECTANGLE");
-    InvalidateRect(hMainWindow, NULL, FALSE);
+    cout << "Clipping point (" << x << "," << y << ") against rectangle..." << endl;
+    if (x >= clipLeft && x <= clipRight && y >= clipTop && y <= clipBottom)
+    {
+        SetPixel(hdcBuffer, x, y, currentColor);
+    }
+    drawnShapes.push_back("CLIP_POINT: (" + to_string(x) + "," + to_string(y) + ")");
 }
 
-void clipPolygonRectangle()
+void clipLineRectangle(int x1, int y1, int x2, int y2)
 {
-    cout << "Polygon Clipping using Rectangle Window..." << endl;
-    drawnShapes.push_back("CLIP_POLYGON_RECTANGLE");
-    InvalidateRect(hMainWindow, NULL, FALSE);
+    cout << "Clipping line from (" << x1 << "," << y1 << ") to (" << x2 << "," << y2 << ") against rectangle..." << endl;
+    double x_1 = x1, y_1 = y1, x_2 = x2, y_2 = y2;
+    OutCode out1 = GetOutCode(x_1, y_1, clipLeft, clipTop, clipRight, clipBottom);
+    OutCode out2 = GetOutCode(x_2, y_2, clipLeft, clipTop, clipRight, clipBottom);
+
+    while (true)
+    {
+        if (!(out1.all | out2.all))
+        { // Trivial Accept
+            dDAAlgorithm(x_1, y_1, x_2, y_2);
+            break;
+        }
+        else if (out1.all & out2.all)
+        { // Trivial Reject
+            break;
+        }
+        else
+        {
+            OutCode outOut = out1.all ? out1 : out2;
+            double x, y;
+            if (outOut.top)
+            {
+                x = x_1 + (clipTop - y_1) * (x_2 - x_1) / (y_2 - y_1);
+                y = clipTop;
+            }
+            else if (outOut.bottom)
+            {
+                x = x_1 + (clipBottom - y_1) * (x_2 - x_1) / (y_2 - y_1);
+                y = clipBottom;
+            }
+            else if (outOut.right)
+            {
+                y = y_1 + (clipRight - x_1) * (y_2 - y_1) / (x_2 - x_1);
+                x = clipRight;
+            }
+            else
+            {
+                y = y_1 + (clipLeft - x_1) * (y_2 - y_1) / (x_2 - x_1);
+                x = clipLeft;
+            }
+
+            if (outOut.all == out1.all)
+            {
+                x_1 = x;
+                y_1 = y;
+                out1 = GetOutCode(x_1, y_1, clipLeft, clipTop, clipRight, clipBottom);
+            }
+            else
+            {
+                x_2 = x;
+                y_2 = y;
+                out2 = GetOutCode(x_2, y_2, clipLeft, clipTop, clipRight, clipBottom);
+            }
+        }
+    }
 }
 
-void clipPointSquare()
+// Sutherland-Hodgman Edge Clippers
+VertexList ClipWithEdge(VertexList p, int edge, bool (*isIn)(Vertex, int), Vertex (*intersect)(Vertex, Vertex, int))
 {
-    cout << "Point Clipping using Square Window..." << endl;
-    drawnShapes.push_back("CLIP_POINT_SQUARE");
-    InvalidateRect(hMainWindow, NULL, FALSE);
+    VertexList out;
+    if (p.empty())
+        return out;
+    Vertex v1 = p.back();
+    for (Vertex v2 : p)
+    {
+        if (isIn(v1, edge) && isIn(v2, edge))
+            out.push_back(v2);
+        else if (isIn(v1, edge))
+            out.push_back(intersect(v1, v2, edge));
+        else if (isIn(v2, edge))
+        {
+            out.push_back(intersect(v1, v2, edge));
+            out.push_back(v2);
+        }
+        v1 = v2;
+    }
+    return out;
 }
 
-void clipLineSquare()
+// Predicates for Polygon Clipping
+bool InLeft(Vertex v, int edge) { return v.x >= edge; }
+bool InRight(Vertex v, int edge) { return v.x <= edge; }
+bool InTop(Vertex v, int edge) { return v.y >= edge; }
+bool InBottom(Vertex v, int edge) { return v.y <= edge; }
+
+void clipPolygonRectangle(vector<POINT> points)
 {
-    cout << "Line Clipping using Square Window..." << endl;
-    drawnShapes.push_back("CLIP_LINE_SQUARE");
-    InvalidateRect(hMainWindow, NULL, FALSE);
+    cout << "Clipping polygon against rectangle..." << endl;
+    VertexList vlist;
+    for (auto p : points)
+        vlist.push_back(Vertex(p.x, p.y));
+
+    vlist = ClipWithEdge(vlist, clipLeft, InLeft, VIntersect);
+    vlist = ClipWithEdge(vlist, clipTop, InTop, HIntersect);
+    vlist = ClipWithEdge(vlist, clipRight, InRight, VIntersect);
+    vlist = ClipWithEdge(vlist, clipBottom, InBottom, HIntersect);
+
+    // Draw result
+    for (int i = 0; i < (int)vlist.size(); i++)
+    {
+        Vertex v1 = vlist[i];
+        Vertex v2 = vlist[(i + 1) % vlist.size()];
+        dDAAlgorithm(v1.x, v1.y, v2.x, v2.y);
+    }
 }
 
-void clipPointCircle()
+void clipPointSquare(int x, int y)
 {
-    cout << "[BONUS] Point Clipping using Circle Window..." << endl;
-    drawnShapes.push_back("CLIP_POINT_CIRCLE");
-    InvalidateRect(hMainWindow, NULL, FALSE);
+    cout << "Point Clipping (Square): (" << x << "," << y << ")" << endl;
+    int L = clipSqCX - clipSqHalf, T = clipSqCY - clipSqHalf;
+    int R = clipSqCX + clipSqHalf, B = clipSqCY + clipSqHalf;
+    if (x >= L && x <= R && y >= T && y <= B)
+    {
+        SetPixel(hdcBuffer, x, y, currentColor);
+        cout << "  -> Inside square: point drawn." << endl;
+    }
+    else
+    {
+        cout << "  -> Outside square: point clipped." << endl;
+    }
+    drawnShapes.push_back("CLIP_POINT_SQUARE: (" + to_string(x) + "," + to_string(y) + ")");
 }
 
-void clipLineCircle()
+void clipLineSquare(int x1, int y1, int x2, int y2)
 {
-    cout << "[BONUS] Line Clipping using Circle Window..." << endl;
-    drawnShapes.push_back("CLIP_LINE_CIRCLE");
-    InvalidateRect(hMainWindow, NULL, FALSE);
+    cout << "Line Clipping (Square) from (" << x1 << "," << y1 << ") to (" << x2 << "," << y2 << ")" << endl;
+    // Reuse Cohen-Sutherland with the square boundaries
+    int L = clipSqCX - clipSqHalf, T = clipSqCY - clipSqHalf;
+    int R = clipSqCX + clipSqHalf, B = clipSqCY + clipSqHalf;
+    double x_1 = x1, y_1 = y1, x_2 = x2, y_2 = y2;
+    OutCode out1 = GetOutCode(x_1, y_1, L, T, R, B);
+    OutCode out2 = GetOutCode(x_2, y_2, L, T, R, B);
+    while (true)
+    {
+        if (!(out1.all | out2.all))
+        {
+            dDAAlgorithm((int)x_1, (int)y_1, (int)x_2, (int)y_2);
+            cout << "  -> Line accepted and drawn." << endl;
+            break;
+        }
+        else if (out1.all & out2.all)
+        {
+            cout << "  -> Line fully clipped." << endl;
+            break;
+        }
+        else
+        {
+            OutCode outOut = out1.all ? out1 : out2;
+            double x, y;
+            if (outOut.top)
+            {
+                x = x_1 + (T - y_1) * (x_2 - x_1) / (y_2 - y_1);
+                y = T;
+            }
+            else if (outOut.bottom)
+            {
+                x = x_1 + (B - y_1) * (x_2 - x_1) / (y_2 - y_1);
+                y = B;
+            }
+            else if (outOut.right)
+            {
+                y = y_1 + (R - x_1) * (y_2 - y_1) / (x_2 - x_1);
+                x = R;
+            }
+            else
+            {
+                y = y_1 + (L - x_1) * (y_2 - y_1) / (x_2 - x_1);
+                x = L;
+            }
+            if (outOut.all == out1.all)
+            {
+                x_1 = x;
+                y_1 = y;
+                out1 = GetOutCode(x_1, y_1, L, T, R, B);
+            }
+            else
+            {
+                x_2 = x;
+                y_2 = y;
+                out2 = GetOutCode(x_2, y_2, L, T, R, B);
+            }
+        }
+    }
+    drawnShapes.push_back("CLIP_LINE_SQUARE: (" + to_string(x1) + "," + to_string(y1) + ") to (" + to_string(x2) + "," + to_string(y2) + ")");
+}
+
+void clipPointCircle(int x, int y)
+{
+    cout << "[BONUS] Point Clipping (Circle): (" << x << "," << y << ")" << endl;
+    int dx = x - clipCircCX;
+    int dy = y - clipCircCY;
+    if (dx * dx + dy * dy <= clipCircR * clipCircR)
+    {
+        SetPixel(hdcBuffer, x, y, currentColor);
+        cout << "  -> Inside circle: point drawn." << endl;
+    }
+    else
+    {
+        cout << "  -> Outside circle: point clipped." << endl;
+    }
+    drawnShapes.push_back("CLIP_POINT_CIRCLE: (" + to_string(x) + "," + to_string(y) + ")");
+}
+
+void clipLineCircle(int x1, int y1, int x2, int y2)
+{
+    cout << "[BONUS] Line Clipping (Circle) from (" << x1 << "," << y1 << ") to (" << x2 << "," << y2 << ")" << endl;
+    // Parametric intersection: P(t) = P1 + t*(P2-P1), solve |P(t)-C|^2 = R^2
+    double dx = x2 - x1, dy = y2 - y1;
+    double fx = x1 - clipCircCX, fy = y1 - clipCircCY;
+    double a = dx * dx + dy * dy;
+    double b = 2.0 * (fx * dx + fy * dy);
+    double c = fx * fx + fy * fy - (double)clipCircR * clipCircR;
+    double disc = b * b - 4.0 * a * c;
+
+    double t0 = 0.0, t1 = 1.0; // visible interval
+
+    if (a == 0)
+    {
+        // Degenerate (zero-length line): treat as point
+        clipPointCircle(x1, y1);
+        return;
+    }
+
+    if (disc < 0)
+    {
+        // Both endpoints outside, no intersection
+        cout << "  -> Line fully outside circle: clipped." << endl;
+        drawnShapes.push_back("CLIP_LINE_CIRCLE: (" + to_string(x1) + "," + to_string(y1) + ") to (" + to_string(x2) + "," + to_string(y2) + ")");
+        return;
+    }
+
+    double sqrtDisc = sqrt(disc);
+    double ta = (-b - sqrtDisc) / (2.0 * a);
+    double tb = (-b + sqrtDisc) / (2.0 * a);
+
+    // Clamp entry/exit to [0,1]
+    t0 = max(t0, ta);
+    t1 = min(t1, tb);
+
+    if (t0 > t1)
+    {
+        cout << "  -> Line fully outside circle: clipped." << endl;
+        drawnShapes.push_back("CLIP_LINE_CIRCLE: (" + to_string(x1) + "," + to_string(y1) + ") to (" + to_string(x2) + "," + to_string(y2) + ")");
+        return;
+    }
+
+    int nx1 = (int)(x1 + t0 * dx + 0.5);
+    int ny1 = (int)(y1 + t0 * dy + 0.5);
+    int nx2 = (int)(x1 + t1 * dx + 0.5);
+    int ny2 = (int)(y1 + t1 * dy + 0.5);
+    dDAAlgorithm(nx1, ny1, nx2, ny2);
+    cout << "  -> Clipped segment drawn from (" << nx1 << "," << ny1 << ") to (" << nx2 << "," << ny2 << ")" << endl;
+    drawnShapes.push_back("CLIP_LINE_CIRCLE: (" + to_string(x1) + "," + to_string(y1) + ") to (" + to_string(x2) + "," + to_string(y2) + ")");
 }
 
 // ==================== Bonus: Smiley Faces ====================
@@ -1705,6 +2249,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     switch (uMsg)
     {
+    case WM_SETCURSOR:
+    {
+        // Only override for the client area (HTCLIENT), let the system
+        // handle resize borders and title bar normally.
+        if (LOWORD(lParam) == HTCLIENT)
+        {
+            SetCursor(LoadCursor(NULL, GetCursorHandleByType(currentCursorType)));
+            return TRUE; // prevent DefWindowProc from resetting it
+        }
+        break;
+    }
+
     case WM_CREATE:
     {
         hdcMain = GetDC(hwnd);
@@ -1723,7 +2279,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_COMMAND:
     {
         int wmId = LOWORD(wParam);
-
+        // Reset state when switching tools for better UX
+        waitingForLinePoints = waitingForCirclePoints = false;
+        linePointsClicked = circlePointsClicked = 0;
+        // Reset clipping mode unless a clipping item was selected (handled below)
+        bool isClippingCommand = (wmId == IDM_CLIP_POINT_RECT || wmId == IDM_CLIP_LINE_RECT ||
+                                  wmId == IDM_CLIP_POLY_RECT || wmId == IDM_CLIP_POINT_SQUARE ||
+                                  wmId == IDM_CLIP_LINE_SQUARE || wmId == IDM_CLIP_POINT_CIRCLE ||
+                                  wmId == IDM_CLIP_LINE_CIRCLE);
+        if (!isClippingCommand)
+        {
+            currentClippingMode = CLIP_NONE;
+            isFirstClick = true;
+            tempPoints.clear();
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
         // File Menu
         if (wmId == IDM_FILE_CLEAR)
         {
@@ -1731,11 +2301,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILE_SAVE)
         {
-            saveToFile();
+            // saveToFile();
+            savePixelsToFile();
         }
         else if (wmId == IDM_FILE_LOAD)
         {
-            loadFromFile();
+            // loadFromFile();
+            loadPixelsFromFile();
         }
         else if (wmId == IDM_FILE_EXIT)
         {
@@ -1958,40 +2530,54 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Clipping Menu
         else if (wmId == IDM_CLIP_POINT_RECT)
         {
-            clipPointRectangle();
+            currentClippingMode = CLIP_POINT;
         }
         else if (wmId == IDM_CLIP_LINE_RECT)
         {
-            clipLineRectangle();
+            currentClippingMode = CLIP_LINE;
         }
         else if (wmId == IDM_CLIP_POLY_RECT)
         {
-            clipPolygonRectangle();
+            currentClippingMode = CLIP_POLYGON;
         }
         else if (wmId == IDM_CLIP_POINT_SQUARE)
         {
-            clipPointSquare();
+            currentClippingMode = CLIP_POINT_SQ;
+            cout << "\n=== Point Clipping (Square Window) ===" << endl;
+            cout << "Click anywhere on the canvas. Points inside the red square will be drawn." << endl;
+            InvalidateRect(hMainWindow, NULL, FALSE);
         }
         else if (wmId == IDM_CLIP_LINE_SQUARE)
         {
-            clipLineSquare();
+            currentClippingMode = CLIP_LINE_SQ;
+            isFirstClick = true;
+            cout << "\n=== Line Clipping (Square Window) ===" << endl;
+            cout << "Click two points to define a line. Visible segment inside square will be drawn." << endl;
+            InvalidateRect(hMainWindow, NULL, FALSE);
         }
         else if (wmId == IDM_CLIP_POINT_CIRCLE)
         {
-            clipPointCircle();
+            currentClippingMode = CLIP_POINT_CIRC;
+            cout << "\n=== [BONUS] Point Clipping (Circle Window) ===" << endl;
+            cout << "Click anywhere on the canvas. Points inside the red circle will be drawn." << endl;
+            InvalidateRect(hMainWindow, NULL, FALSE);
         }
         else if (wmId == IDM_CLIP_LINE_CIRCLE)
         {
-            clipLineCircle();
+            currentClippingMode = CLIP_LINE_CIRC;
+            isFirstClick = true;
+            cout << "\n=== [BONUS] Line Clipping (Circle Window) ===" << endl;
+            cout << "Click two points to define a line. Visible segment inside circle will be drawn." << endl;
+            InvalidateRect(hMainWindow, NULL, FALSE);
         }
         // Bonus Menu
         else if (wmId == IDM_BONUS_HAPPY)
         {
-			drawSadFace();
-		}
+            drawHappyFace();
+        }
         else if (wmId == IDM_BONUS_SAD)
         {
-			drawHappyFace();
+            drawSadFace();
         }
         return 0;
     }
@@ -2032,16 +2618,25 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             drawCardinalSplineCurve(splinePoints[n - 2], t0, splinePoints[n - 1], t1);
             splinePoints.clear();
         }
+        if (currentClippingMode == CLIP_POLYGON && tempPoints.size() >= 3)
+        {
+            cout << "Clipping polygon with " << tempPoints.size() << " points..." << endl;
+            clipPolygonRectangle(tempPoints);
+            tempPoints.clear();
+            currentClippingMode = CLIP_NONE;
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
         break;
     }
 
     case WM_LBUTTONDOWN:
     {
+        int mouseX = GET_X_LPARAM(lParam);
+        int mouseY = GET_Y_LPARAM(lParam);
+        int x = mouseX;
+        int y = mouseY;
         if (waitingForLinePoints)
         {
-            int mouseX = GET_X_LPARAM(lParam);
-            int mouseY = GET_Y_LPARAM(lParam);
-
             if (linePointsClicked == 0)
             {
                 lineX1 = mouseX;
@@ -2288,7 +2883,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             Vector2 t0;
             Vector2 t1;
 
-			drawCircleDirect(mouseX,mouseY,2);
+            drawCircleDirect(mouseX, mouseY, 2);
             if (n == 3)
             {
                 t0 = (splinePoints[1] - splinePoints[0]) * (1 - CARDINAL_TENSION);
@@ -2303,6 +2898,82 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 cout << "DRAWN\n";
             }
         }
+        if (currentClippingMode == CLIP_POINT)
+        {
+            clipPointRectangle(x, y);
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        else if (currentClippingMode == CLIP_LINE)
+        {
+            if (isFirstClick)
+            {
+                linex1 = x;
+                liney1 = y;
+                isFirstClick = false;
+            }
+            else
+            {
+                clipLineRectangle(linex1, liney1, x, y);
+                isFirstClick = true;
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+        }
+        else if (currentClippingMode == CLIP_POLYGON)
+        {
+            tempPoints.push_back({x, y});
+            // Visual feedback: draw a small dot and connect to previous point
+            Draw8Points(hdcBuffer, x, y, 0, 3, currentColor);
+            Draw8Points(hdcBuffer, x, y, 2, 2, currentColor);
+            int n = tempPoints.size();
+            if (n >= 2)
+            {
+                POINT prev = tempPoints[n - 2];
+                dDAAlgorithm(prev.x, prev.y, x, y);
+            }
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        else if (currentClippingMode == CLIP_POINT_SQ)
+        {
+            clipPointSquare(x, y);
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        else if (currentClippingMode == CLIP_LINE_SQ)
+        {
+            if (isFirstClick)
+            {
+                linex1 = x;
+                liney1 = y;
+                isFirstClick = false;
+                cout << "First point: (" << x << "," << y << "). Click second point..." << endl;
+            }
+            else
+            {
+                clipLineSquare(linex1, liney1, x, y);
+                isFirstClick = true;
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+        }
+        else if (currentClippingMode == CLIP_POINT_CIRC)
+        {
+            clipPointCircle(x, y);
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        else if (currentClippingMode == CLIP_LINE_CIRC)
+        {
+            if (isFirstClick)
+            {
+                linex1 = x;
+                liney1 = y;
+                isFirstClick = false;
+                cout << "First point: (" << x << "," << y << "). Click second point..." << endl;
+            }
+            else
+            {
+                clipLineCircle(linex1, liney1, x, y);
+                isFirstClick = true;
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+        }
         break;
     }
 
@@ -2311,7 +2982,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
         BitBlt(hdc, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, hdcBuffer, 0, 0, SRCCOPY);
-        EndPaint(hwnd, &ps);
 
         // Draw status message if waiting for points
         if (waitingForLinePoints)
@@ -2346,7 +3016,36 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             SelectObject(hdc, hOldFont);
             DeleteObject(hFont);
         }
+        if (currentClippingMode != CLIP_NONE)
+        {
+            drawClippingWindow(hdc);
 
+            // Show hint text for clipping modes
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(200, 0, 200));
+            HFONT hFont = CreateFont(18, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 0, L"Arial");
+            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+
+            if (currentClippingMode == CLIP_POINT)
+                TextOut(hdc, 10, 10, L"Point Clip (Rectangle)  |  Click to test a point", 49);
+            else if (currentClippingMode == CLIP_LINE)
+                TextOut(hdc, 10, 10, isFirstClick ? L"Line Clip (Rectangle)  |  Click FIRST endpoint" : L"Line Clip (Rectangle)  |  Click SECOND endpoint", 47);
+            else if (currentClippingMode == CLIP_POLYGON)
+                TextOut(hdc, 10, 10, L"Polygon Clip (Rectangle)  |  Left-click to add points, Right-click to clip", 75);
+            else if (currentClippingMode == CLIP_POINT_SQ)
+                TextOut(hdc, 10, 10, L"Point Clip (Square)  |  Click to test a point", 46);
+            else if (currentClippingMode == CLIP_LINE_SQ)
+                TextOut(hdc, 10, 10, isFirstClick ? L"Line Clip (Square)  |  Click FIRST endpoint" : L"Line Clip (Square)  |  Click SECOND endpoint", 43);
+            else if (currentClippingMode == CLIP_POINT_CIRC)
+                TextOut(hdc, 10, 10, L"[BONUS] Point Clip (Circle)  |  Click to test a point", 54);
+            else if (currentClippingMode == CLIP_LINE_CIRC)
+                TextOut(hdc, 10, 10, isFirstClick ? L"[BONUS] Line Clip (Circle)  |  Click FIRST endpoint" : L"[BONUS] Line Clip (Circle)  |  Click SECOND endpoint", 51);
+
+            SelectObject(hdc, hOldFont);
+            DeleteObject(hFont);
+        }
+
+        EndPaint(hwnd, &ps);
         return 0;
     }
 
