@@ -1103,10 +1103,97 @@ void ConvexFilling()
     drawnShapes.push_back("FILL_CONVEX_SCANLINE");
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
+struct EdgeEntry
+{
+    vector<int> xIntersections;
+};
+
+void InitNonConvexTable(EdgeEntry table[])
+{
+    for (int i = 0; i < MAXENTRIES; i++)
+    {
+        table[i].xIntersections.clear();
+    }
+}
+void ScanEdgeNonConvex(POINT v1, POINT v2, EdgeEntry table[])
+{
+    if (v1.y == v2.y)
+        return;
+
+    if (v1.y > v2.y)
+        swap(v1, v2);
+
+    double minv = (double)(v2.x - v1.x) / (v2.y - v1.y);
+
+    double x = v1.x;
+    int y = v1.y;
+
+    while (y < v2.y)
+    {
+        if (y >= 0 && y < MAXENTRIES)
+        {
+            table[y].xIntersections.push_back((int)round(x));
+        }
+
+        y++;
+        x += minv;
+    }
+}
+void DrawNonConvexScanLines(EdgeEntry table[], COLORREF color)
+{
+    for (int y = 0; y < MAXENTRIES; y++)
+    {
+        vector<int> &xs = table[y].xIntersections;
+
+        if (xs.size() < 2)
+            continue;
+
+        sort(xs.begin(), xs.end());
+
+        for (int i = 0; i + 1 < xs.size(); i += 2)
+        {
+            int x1 = xs[i];
+            int x2 = xs[i + 1];
+
+            for (int x = x1; x <= x2; x++)
+            {
+                SetPixel(hdcBuffer, x, y, color);
+            }
+        }
+    }
+}
 void NonConvexFilling()
 {
-    cout << "Filling non-convex polygon using Scanline Fill algorithm..." << endl;
+    if (polygonPoints.size() < 3)
+        return;
+
+    int n = polygonPoints.size();
+
+    EdgeEntry *table = new EdgeEntry[MAXENTRIES];
+
+    InitNonConvexTable(table);
+
+    POINT v1;
+    v1.x = polygonPoints[n - 1].x;
+    v1.y = polygonPoints[n - 1].y;
+
+    for (int i = 0; i < n; i++)
+    {
+        POINT v2;
+        v2.x = polygonPoints[i].x;
+        v2.y = polygonPoints[i].y;
+
+        ScanEdgeNonConvex(v1, v2, table);
+
+        v1 = v2;
+    }
+
+    DrawNonConvexScanLines(table, currentColor);
+
+    delete[] table;
+
     drawnShapes.push_back("FILL_NONCONVEX_POLYGON_SCANLINE");
+
     InvalidateRect(hMainWindow, NULL, FALSE);
 }
 
