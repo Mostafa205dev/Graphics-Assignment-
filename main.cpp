@@ -1018,13 +1018,60 @@ void ScanEdge(POINT v1, POINT v2, Entry table[])
 void DrawScanLines(Entry table[], COLORREF color)
 {
     for (int y = 0; y < MAXENTRIES; y++)
-        if (table[y].xmin <= table[y].xmax)
+    {
+        if (table[y].xmin <= table[y].xmax &&
+            table[y].xmin != INT_MAX &&
+            table[y].xmax != INT_MIN)
+        {
             for (int x = table[y].xmin; x <= table[y].xmax; x++)
+            {
                 SetPixel(hdcBuffer, x, y, color);
+            }
+        }
+    }
 }
+int cross(POINT A, POINT B, POINT C)
+{
+    int dx1 = B.x - A.x;
+    int dy1 = B.y - A.y;
 
+    int dx2 = C.x - B.x;
+    int dy2 = C.y - B.y;
+
+    return dx1 * dy2 - dy1 * dx2;
+}
+bool isConvex(const vector<POINT> &p)
+{
+    int n = p.size();
+    if (n < 3) return false;
+
+    int sign = 0;
+
+    for (int i = 0; i < n; i++)
+    {
+        POINT A = p[i];
+        POINT B = p[(i + 1) % n];
+        POINT C = p[(i + 2) % n];
+
+        int z = cross(A, B, C);
+
+        if (z != 0)
+        {
+            if (sign == 0)
+                sign = (z > 0) ? 1 : -1;
+            else if ((z > 0 ? 1 : -1) != sign)
+                return false;
+        }
+    }
+    return true;
+}
 void ConvexFilling()
 {
+    if (!isConvex(polygonPoints))
+    {
+        MessageBox(hMainWindow, _T("Polygon is not convex!"), _T("Error"), MB_OK);
+        return;
+    }
     if (polygonPoints.size() < 3)
         return;
 
@@ -1033,14 +1080,14 @@ void ConvexFilling()
     Entry *table = new Entry[MAXENTRIES];
     InitEntries(table);
 
-        POINT v1;
-    v1.x = polygonPoints[n - 1].x;
+    POINT v1;
+    v1.x = polygonPoints[n - 1].x; // last point
     v1.y = polygonPoints[n - 1].y;
 
     for (int i = 0; i < n; i++)
     {
         POINT v2;
-        v2.x = polygonPoints[i].x;
+        v2.x = polygonPoints[i].x; // current point
         v2.y = polygonPoints[i].y;
 
         ScanEdge(v1, v2, table);
@@ -1594,15 +1641,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         else if (wmId == IDM_FILL_CONVEX)
         {
-            if (!buildingConvex)
-            {
 
-                polygonPoints.clear();
-                buildingConvex = true;
-                MessageBox(hwnd,
-                           _T("Click to add polygon points.\nRight-click to finish."),
-                           _T("Convex Fill"), MB_OK);
-            }
+            polygonPoints.clear();
+            buildingConvex = true;
+            MessageBox(hwnd,
+                       _T("Click to add polygon points.\nRight-click to finish."),
+                       _T("Convex Fill"), MB_OK);
         }
         else if (wmId == IDM_FILL_NONCONVEX)
         {
@@ -1671,7 +1715,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         if ((buildingConvex || buildingNonConvex) && polygonPoints.size() >= 3)
         {
-            // أغلق الـ polygon
+            // close the polygon by connecting last point to first
             POINT first = polygonPoints.front();
             POINT last = polygonPoints.back();
             dDAAlgorithm(last.x, last.y, first.x, first.y);
@@ -1771,7 +1815,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             int mouseY = GET_Y_LPARAM(lParam);
             polygonPoints.push_back({mouseX, mouseY});
 
-            Draw8Points(hdcBuffer, mouseX, mouseY, 0, 3, currentColor);
+            Draw8Points(hdcBuffer, mouseX, mouseY, 0, 3, currentColor); // small circle for vertex
             Draw8Points(hdcBuffer, mouseX, mouseY, 2, 2, currentColor);
 
             int n = polygonPoints.size();
